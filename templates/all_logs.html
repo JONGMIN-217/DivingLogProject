@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>전체 다이빙 로그</h2>
+
+<table border="1">
+
+<tr>
+<th>번호</th>
+<th>날짜</th>
+<th>포인트</th>
+<th>최대수심</th>
+<th>다이브타임</th>
+<th>시야</th>
+<th>버디</th>
+<th>관리</th>
+</tr>
+
+{% for log in logs %}
+
+<tr>
+<td>#{{ log.id }}</td>
+<td>{{ log.dive_date }}</td>
+<td>{{ log.dive_point.name }}</td>
+<td>{{ log.max_depth }} m</td>
+<td>{{ log.dive_time }} min</td>
+<td>
+{% for i in range(log.visibility or 0) %}
+★
+{% endfor %}
+</td>
+<td>{{ log.buddy }}</td>
+<td>
+<a href="/log/{{ log.id }}/edit">Edit</a>
+<form action="/log/{{ log.id }}/delete" method="post" style="display:inline;">
+<button type="submit">Delete</button>
+</form>
+</td>
+</tr>
+
+{% endfor %}
+
+</table>
+
+{% endblock %}

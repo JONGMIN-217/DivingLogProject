@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>로그 저장 완료</title>
+</head>
+
+<body>
+<div style="margin-bottom:20px;">
+<a href="/"><button>Home</button></a>
+<a href="/map"><button>Map</button></a>
+<a href="/logs"><button>Logs</button></a>
+<a href="/log/add"><button>Add Log</button></a>
+</div>
+<h2>다이빙 로그 저장 완료</h2>
+
+<p>
+<b>Dive #{{ log.id }}</b><br>
+날짜: {{ log.dive_date }}<br>
+포인트: {{ log.dive_point.name }}<br>
+최대 수심: {{ log.max_depth }} m<br>
+다이브 타임: {{ log.dive_time }} min<br>
+Buddy: {{ log.buddy }}
+</p>
+
+<hr>
+
+<a href="/logs">
+<button>전체 로그 보기</button>
+</a>
+
+<a href="/point/{{ log.dive_point_id }}/logs">
+<button>이 포인트 로그 보기</button>
+</a>
+
+<a href="/log/add">
+<button>로그 계속 추가</button>
+</a>
+
+<a href="/map">
+<button>지도 페이지</button>
+</a>
+
+</body>
+</html>

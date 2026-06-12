@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Edit Log</title>
+</head>
+
+<body>
+<div style="margin-bottom:20px;">
+<a href="/"><button>Home</button></a>
+<a href="/map"><button>Map</button></a>
+<a href="/logs"><button>Logs</button></a>
+<a href="/log/add"><button>Add Log</button></a>
+</div>
+<h2>Edit Dive Log #{{ log.id }}</h2>
+
+<form action="/log/{{ log.id }}/edit" method="post">
+
+포인트
+
+<select name="dive_point_id">
+
+{% for p in points %}
+
+<option value="{{ p.id }}"
+{% if p.id == log.dive_point_id %}
+selected
+{% endif %}
+>
+
+{{ p.name }}
+
+</option>
+
+{% endfor %}
+
+</select>
+
+<br><br>
+
+날짜
+<input type="date" name="dive_date" value="{{ log.dive_date }}">
+
+<br><br>
+
+최대수심
+<input type="number" step="0.1" name="max_depth" value="{{ log.max_depth }}">
+
+<br><br>
+
+평균수심
+<input type="number" step="0.1" name="avg_depth" value="{{ log.avg_depth }}">
+
+<br><br>
+
+다이브타임
+<input type="number" name="dive_time" value="{{ log.dive_time }}">
+
+<br><br>
+
+수온
+<input type="number" step="0.1" name="water_temp" value="{{ log.water_temp }}">
+
+<br><br>
+
+시야
+<input type="number" step="0.1" name="visibility" value="{{ log.visibility }}">
+
+<br><br>
+
+메모
+<textarea name="note">{{ log.note }}</textarea>
+
+<br><br>
+
+<button type="submit">수정 저장</button>
+
+</form>
+
+<br>
+
+<a href="/map">지도 돌아가기</a>
+
+</body>
+</html>
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>Edit Dive Log #{{ log.id }}</h2>
+
+<form action="/log/{{ log.id }}/edit" method="post">
+
+포인트<br>
+<select name="dive_point_id">
+{% for p in points %}
+<option value="{{ p.id }}"
+{% if p.id == log.dive_point_id %}
+selected
+{% endif %}
+>
+{{ p.name }}
+</option>
+{% endfor %}
+</select>
+
+<br><br>
+
+날짜<br>
+<input type="date" name="dive_date" value="{{ log.dive_date }}">
+
+<br><br>
+
+최대수심<br>
+<input type="number" step="0.1" name="max_depth" min="0" value="{{ log.max_depth }}">
+
+<br><br>
+
+평균수심<br>
+<input type="number" step="0.1" name="avg_depth" min="0" value="{{ log.avg_depth }}">
+
+<br><br>
+
+다이브타임<br>
+<input type="number" name="dive_time" value="{{ log.dive_time }}">
+
+<br><br>
+
+수온<br>
+<input type="number" step="0.1" name="water_temp" value="{{ log.water_temp }}">
+
+<br><br>
+
+시야<br>
+<select name="visibility">
+<option value="1" {% if log.visibility == 1 %}selected{% endif %}>★</option>
+<option value="2" {% if log.visibility == 2 %}selected{% endif %}>★★</option>
+<option value="3" {% if log.visibility == 3 %}selected{% endif %}>★★★</option>
+<option value="4" {% if log.visibility == 4 %}selected{% endif %}>★★★★</option>
+<option value="5" {% if log.visibility == 5 %}selected{% endif %}>★★★★★</option>
+</select>
+
+<br><br>
+
+버디<br>
+<input type="text" name="buddy" value="{{ log.buddy }}">
+
+<br><br>
+
+입수잔압 (bar)<br>
+<input type="number" name="start_pressure" value="{{ log.start_pressure }}">
+
+<br><br>
+
+출수잔압 (bar)<br>
+<input type="number" name="end_pressure" value="{{ log.end_pressure }}">
+
+<br><br>
+
+메모<br>
+<textarea name="note">{{ log.note }}</textarea>
+
+<br><br>
+
+<button type="submit">수정 저장</button>
+
+</form>
+
+<br>
+
+<a href="/log/{{ log.id }}"><button>상세 보기</button></a>
+<a href="/logs"><button>전체 로그</button></a>
+
+{% endblock %}

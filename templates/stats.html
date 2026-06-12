@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>다이빙 통계</h2>
+
+<table border="1">
+
+<tr>
+<td>Total Dives</td>
+<td>{{ total_dives }}</td>
+</tr>
+
+<tr>
+<td>Max Depth</td>
+<td>{{ max_depth }} m</td>
+</tr>
+
+<tr>
+<td>Average Depth</td>
+<td>{{ avg_depth }} m</td>
+</tr>
+
+<tr>
+<td>Total Dive Time</td>
+<td>{{ total_dive_time }} min</td>
+</tr>
+
+</table>
+
+<br>
+
+<a href="/map"><button>지도</button></a>
+
+{% endblock %}

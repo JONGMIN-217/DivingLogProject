@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>Dive Log #{{ next_dive_number }}</h2>
+
+<form action="/log/add" method="post" enctype="multipart/form-data">
+
+지역<br>
+<select id="regionSelect">
+<option value="">선택</option>
+</select>
+
+<br><br>
+
+세부 지역<br>
+<select id="areaSelect">
+<option value="">선택</option>
+</select>
+
+<br><br>
+
+포인트<br>
+<select name="dive_point_id" id="pointSelect">
+<option value="">선택</option>
+</select>
+
+<br><br>
+
+날짜<br>
+<input type="date" name="dive_date">
+
+<br><br>
+
+최대수심<br>
+<input type="number" step="0.1" name="max_depth" min="0">
+
+<br><br>
+
+평균수심<br>
+<input type="number" step="0.1" name="avg_depth" min="0">
+
+<br><br>
+
+입수시간<br>
+<input type="time" id="startTime">
+
+<br><br>
+
+출수시간<br>
+<input type="time" id="endTime">
+
+<br><br>
+
+다이브 타임<br>
+<input type="number" name="dive_time" id="diveTime">
+
+<br><br>
+
+수온<br>
+<input type="number" step="0.1" name="water_temp">
+
+<br><br>
+
+시야<br>
+<select name="visibility">
+<option value="1">★</option>
+<option value="2">★★</option>
+<option value="3">★★★</option>
+<option value="4">★★★★</option>
+<option value="5">★★★★★</option>
+</select>
+
+<br><br>
+
+버디<br>
+<input type="text" name="buddy" placeholder="예: 김다이버, 다이빙클럽 팀">
+
+<br><br>
+
+입수잔압 (bar)<br>
+<input type="number" name="start_pressure">
+
+<br><br>
+
+출수잔압 (bar)<br>
+<input type="number" name="end_pressure">
+
+<br><br>
+
+사진<br>
+<input type="file" name="image"><br><br>
+
+메모<br>
+<textarea name="note"></textarea>
+
+<br><br>
+
+<button type="submit">저장</button>
+
+</form>
+
+<script>
+
+async function loadRegions(){
+
+ const res = await fetch("/regions")
+ const regions = await res.json()
+
+ const select = document.getElementById("regionSelect")
+ select.innerHTML = ""
+
+ regions.forEach(r=>{
+  const opt=document.createElement("option")
+  opt.value=r.id
+  opt.text=r.name
+  select.appendChild(opt)
+ })
+
+ // 첫 지역 자동 선택
+ if(regions.length>0){
+  select.value = regions[0].id
+  select.dispatchEvent(new Event("change"))
+ }
+
+}
+
+document.getElementById("regionSelect").addEventListener("change", async function(){
+
+ const regionId=this.value
+
+ const res=await fetch(`/areas?region_id=${regionId}`)
+ const areas=await res.json()
+
+ const areaSelect=document.getElementById("areaSelect")
+ areaSelect.innerHTML=""
+
+ areas.forEach(a=>{
+  const opt=document.createElement("option")
+  opt.value=a.id
+  opt.text=a.name
+  areaSelect.appendChild(opt)
+ })
+
+ // 첫 area 자동 선택 + change 이벤트 발생
+ if(areas.length>0){
+  areaSelect.value = areas[0].id
+  areaSelect.dispatchEvent(new Event("change"))
+ }
+
+})
+
+document.getElementById("areaSelect").addEventListener("change", async function(){
+
+ const areaId=this.value
+ const res=await fetch(`/divepoints?area_id=${areaId}`)
+ const points=await res.json()
+
+ const pointSelect=document.getElementById("pointSelect")
+ pointSelect.innerHTML=""
+
+ points.forEach(p=>{
+  const opt=document.createElement("option")
+  opt.value=p.id
+  opt.text=p.name
+  pointSelect.appendChild(opt)
+ })
+
+})
+
+loadRegions()
+
+function calculateDiveTime(){
+
+ const start=document.getElementById("startTime").value
+ const end=document.getElementById("endTime").value
+
+ if(!start || !end) return
+
+ const s=new Date(`1970-01-01T${start}:00`)
+ const e=new Date(`1970-01-01T${end}:00`)
+
+ const diff=(e-s)/60000
+
+ if(diff>=0){
+  document.getElementById("diveTime").value=diff
+ }
+
+}
+
+function calculateEndTime(){
+
+ const start=document.getElementById("startTime").value
+ const diveTime=document.getElementById("diveTime").value
+
+ if(!start || !diveTime) return
+
+ const s=new Date(`1970-01-01T${start}:00`)
+ s.setMinutes(s.getMinutes()+parseInt(diveTime))
+
+ const h=String(s.getHours()).padStart(2,'0')
+ const m=String(s.getMinutes()).padStart(2,'0')
+
+ document.getElementById("endTime").value=`${h}:${m}`
+
+}
+
+document.getElementById("endTime").addEventListener("change",calculateDiveTime)
+document.getElementById("diveTime").addEventListener("change",calculateEndTime)
+
+</script>
+
+{% endblock %}

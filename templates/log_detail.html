@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>Dive Log #{{ log.id }}</h2>
+
+<table border="1">
+
+<tr>
+<td>날짜</td>
+<td>{{ log.dive_date }}</td>
+</tr>
+
+<tr>
+<td>포인트</td>
+<td>{{ log.dive_point.name }}</td>
+</tr>
+
+<tr>
+<td>최대수심</td>
+<td>{{ log.max_depth }} m</td>
+</tr>
+
+<tr>
+<td>평균수심</td>
+<td>{{ log.avg_depth }} m</td>
+</tr>
+
+<tr>
+<td>다이브타임</td>
+<td>{{ log.dive_time }} min</td>
+</tr>
+
+<tr>
+<td>수온</td>
+<td>{{ log.water_temp }}</td>
+</tr>
+
+<tr>
+<td>시야</td>
+<td>
+{% for i in range(log.visibility or 0) %}
+★
+{% endfor %}
+</td>
+</tr>
+
+<tr>
+<td>버디</td>
+<td>{{ log.buddy }}</td>
+</tr>
+
+<tr>
+<td>입수잔압</td>
+<td>{{ log.start_pressure }} bar</td>
+</tr>
+
+<tr>
+<td>출수잔압</td>
+<td>{{ log.end_pressure }} bar</td>
+</tr>
+
+<tr>
+<td>메모</td>
+<td>{{ log.note }}</td>
+</tr>
+
+{% if log.image_path %}
+<tr>
+<td>사진</td>
+<td>
+    <img src="/{{ log.image_path }}" width="300" alt="Dive log photo">
+</td>
+</tr>
+{% endif %}
+
+</table>
+
+<br>
+
+<a href="/point/{{ log.dive_point_id }}/logs"><button>포인트 로그</button></a>
+<a href="/logs"><button>전체 로그</button></a>
+
+{% endblock %}

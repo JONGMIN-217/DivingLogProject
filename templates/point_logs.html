@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>{{ point.name }} 다이빙 로그</h2>
+
+{% if request.query_params.get("updated") %}
+<div style="color: green; font-weight: bold;">
+로그가 수정되었습니다.
+</div>
+{% endif %}
+
+{% if request.query_params.get("deleted") %}
+<div style="color:red; font-weight:bold;">
+로그가 삭제되었습니다.
+</div>
+{% endif %}
+
+<table border="1">
+<tr>
+<th>번호</th>
+<th>날짜</th>
+<th>최대수심</th>
+<th>평균수심</th>
+<th>다이브타임</th>
+<th>시야</th>
+<th>버디</th>
+<th>관리</th>
+</tr>
+
+{% for log in logs %}
+<tr>
+<td>#{{ log.id }}</td>
+<td>{{ log.dive_date }}</td>
+<td>{{ log.max_depth }} m</td>
+<td>{{ log.avg_depth }} m</td>
+<td>{{ log.dive_time }} min</td>
+<td>
+{% for i in range(log.visibility or 0) %}
+★
+{% endfor %}
+</td>
+<td>{{ log.buddy }}</td>
+<td>
+<a href="/log/{{ log.id }}/edit">Edit</a>
+<form action="/log/{{ log.id }}/delete" method="post" style="display:inline;">
+<button type="submit">Delete</button>
+</form>
+</td>
+</tr>
+{% endfor %}
+
+</table>
+
+<br>
+<a href="/map"><button>지도 돌아가기</button></a>
+
+{% endblock %}
