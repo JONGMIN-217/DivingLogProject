@@ -1,104 +1,227 @@
 {% extends "base.html" %}
 
+{% block head %}
+<style>
+.log-add-page {
+    max-width: 960px;
+}
+
+.log-add-header {
+    margin-bottom: 18px;
+}
+
+.log-add-header h2 {
+    margin: 0 0 8px;
+}
+
+.log-add-header p {
+    margin: 0;
+    color: #666;
+}
+
+.form-section {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #fff;
+    padding: 18px;
+    margin-bottom: 16px;
+}
+
+.form-section h3 {
+    margin: 0 0 14px;
+    font-size: 18px;
+}
+
+.field-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+}
+
+.field {
+    display: grid;
+    gap: 6px;
+}
+
+.field label {
+    color: #555;
+    font-size: 14px;
+}
+
+.field input,
+.field select,
+.field textarea {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    font: inherit;
+}
+
+.field textarea {
+    min-height: 110px;
+    resize: vertical;
+}
+
+.form-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 18px;
+}
+
+.save-button {
+    padding: 10px 16px;
+    border: 1px solid #2364d2;
+    border-radius: 6px;
+    background: #2364d2;
+    color: #fff;
+    font: inherit;
+    cursor: pointer;
+}
+</style>
+{% endblock %}
+
 {% block content %}
 
+<div class="log-add-page">
+<div class="log-add-header">
 <h2>다이빙 로그 #{{ next_dive_number }}</h2>
+<p>위치부터 기타 정보까지 순서대로 기록하세요.</p>
+</div>
 
 <form action="/log/add" method="post" enctype="multipart/form-data">
 
-지역<br>
+<section class="form-section">
+<h3>위치 정보</h3>
+<div class="field-grid">
+<div class="field">
+<label for="regionSelect">지역</label>
 <select id="regionSelect">
 <option value="">선택</option>
 </select>
+</div>
 
-<br><br>
-
-세부 지역<br>
+<div class="field">
+<label for="areaSelect">세부지역</label>
 <select id="areaSelect">
 <option value="">선택</option>
 </select>
+</div>
 
-<br><br>
-
-포인트<br>
+<div class="field">
+<label for="pointSelect">포인트</label>
 <select name="dive_point_id" id="pointSelect">
 <option value="">선택</option>
 </select>
+</div>
+</div>
+</section>
 
-<br><br>
+<section class="form-section">
+<h3>기본 정보</h3>
+<div class="field-grid">
+<div class="field">
+<label for="diveDate">날짜</label>
+<input type="date" name="dive_date" id="diveDate">
+</div>
 
-날짜<br>
-<input type="date" name="dive_date">
-
-<br><br>
-
-최대수심<br>
-<input type="number" step="0.1" name="max_depth" min="0">
-
-<br><br>
-
-평균수심<br>
-<input type="number" step="0.1" name="avg_depth" min="0">
-
-<br><br>
-
-입수시간<br>
+<div class="field">
+<label for="startTime">입수시간</label>
 <input type="time" name="entry_time" id="startTime">
+</div>
 
-<br><br>
-
-출수시간<br>
+<div class="field">
+<label for="endTime">출수시간</label>
 <input type="time" name="exit_time" id="endTime">
+</div>
 
-<br><br>
-
-다이브 타임<br>
+<div class="field">
+<label for="diveTime">다이브타임</label>
 <input type="number" name="dive_time" id="diveTime">
+</div>
+</div>
+</section>
 
-<br><br>
+<section class="form-section">
+<h3>수심 정보</h3>
+<div class="field-grid">
+<div class="field">
+<label for="maxDepth">최대수심</label>
+<input type="number" step="0.1" name="max_depth" id="maxDepth" min="0">
+</div>
 
-수온<br>
-<input type="number" step="0.1" name="water_temp">
+<div class="field">
+<label for="avgDepth">평균수심</label>
+<input type="number" step="0.1" name="avg_depth" id="avgDepth" min="0">
+</div>
+</div>
+</section>
 
-<br><br>
+<section class="form-section">
+<h3>환경 정보</h3>
+<div class="field-grid">
+<div class="field">
+<label for="waterTemp">수온</label>
+<input type="number" step="0.1" name="water_temp" id="waterTemp">
+</div>
 
-시야<br>
-<select name="visibility">
+<div class="field">
+<label for="visibility">시야</label>
+<select name="visibility" id="visibility">
 <option value="1">★</option>
 <option value="2">★★</option>
 <option value="3">★★★</option>
 <option value="4">★★★★</option>
 <option value="5">★★★★★</option>
 </select>
+</div>
+</div>
+</section>
 
-<br><br>
+<section class="form-section">
+<h3>공기 정보</h3>
+<div class="field-grid">
+<div class="field">
+<label for="startPressure">입수잔압 (bar)</label>
+<input type="number" name="start_pressure" id="startPressure">
+</div>
 
-버디<br>
-<input type="text" name="buddy" placeholder="예: 김다이버, 다이빙클럽 팀">
+<div class="field">
+<label for="endPressure">출수잔압 (bar)</label>
+<input type="number" name="end_pressure" id="endPressure">
+</div>
+</div>
+</section>
 
-<br><br>
+<section class="form-section">
+<h3>기타 정보</h3>
+<div class="field-grid">
+<div class="field">
+<label for="buddy">버디</label>
+<input type="text" name="buddy" id="buddy" placeholder="예: 김다이버, 다이빙클럽 팀">
+</div>
 
-입수잔압 (bar)<br>
-<input type="number" name="start_pressure">
+<div class="field">
+<label for="image">사진 업로드</label>
+<input type="file" name="image" id="image">
+</div>
+</div>
 
-<br><br>
+<br>
 
-출수잔압 (bar)<br>
-<input type="number" name="end_pressure">
+<div class="field">
+<label for="note">메모</label>
+<textarea name="note" id="note"></textarea>
+</div>
+</section>
 
-<br><br>
-
-사진<br>
-<input type="file" name="image"><br><br>
-
-메모<br>
-<textarea name="note"></textarea>
-
-<br><br>
-
-<button type="submit">저장</button>
+<div class="form-actions">
+<button class="save-button" type="submit">저장</button>
+</div>
 
 </form>
+</div>
 
 <script>
 
