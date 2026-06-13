@@ -2,7 +2,7 @@
 
 {% block content %}
 
-<h2>Dive Log #{{ next_dive_number }}</h2>
+<h2>다이빙 로그 #{{ next_dive_number }}</h2>
 
 <form action="/log/add" method="post" enctype="multipart/form-data">
 
@@ -43,12 +43,12 @@
 <br><br>
 
 입수시간<br>
-<input type="time" id="startTime">
+<input type="time" name="entry_time" id="startTime">
 
 <br><br>
 
 출수시간<br>
-<input type="time" id="endTime">
+<input type="time" name="exit_time" id="endTime">
 
 <br><br>
 

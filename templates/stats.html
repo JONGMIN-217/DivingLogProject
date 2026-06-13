@@ -1,35 +1,267 @@
 {% extends "base.html" %}
 
+{% block head %}
+<style>
+.stats-page {
+    max-width: 1120px;
+}
+
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+}
+
+.summary-card,
+.stats-card {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #fff;
+    padding: 16px;
+}
+
+.summary-label {
+    margin-bottom: 8px;
+    color: #666;
+    font-size: 14px;
+}
+
+.summary-value {
+    font-size: 24px;
+    font-weight: 700;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+}
+
+.stats-card h3 {
+    margin: 0 0 14px;
+    font-size: 18px;
+}
+
+.stats-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.stats-table th,
+.stats-table td {
+    padding: 9px 10px;
+    border: 1px solid #ddd;
+    text-align: left;
+}
+
+.stats-table th {
+    background: #f6f7f9;
+}
+
+.bar-list {
+    display: grid;
+    gap: 12px;
+}
+
+.bar-row {
+    display: grid;
+    grid-template-columns: minmax(90px, 130px) 1fr 42px;
+    gap: 10px;
+    align-items: center;
+}
+
+.bar-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bar-track {
+    height: 12px;
+    border-radius: 6px;
+    background: #edf0f4;
+    overflow: hidden;
+}
+
+.bar-fill {
+    height: 100%;
+    min-width: 6px;
+    border-radius: 6px;
+    background: #2364d2;
+}
+
+.bar-count {
+    text-align: right;
+    font-weight: 700;
+}
+
+.empty-text {
+    color: #777;
+}
+
+.bottom-actions {
+    margin-top: 18px;
+}
+
+@media (max-width: 640px) {
+    .bar-row {
+        grid-template-columns: 1fr 42px;
+    }
+
+    .bar-track {
+        grid-column: 1 / -1;
+        grid-row: 2;
+    }
+}
+</style>
+{% endblock %}
+
 {% block content %}
 
-<h2>다이빙 통계</h2>
+<div class="stats-page">
+    <h2>다이빙 통계</h2>
 
-<table border="1">
+    <div class="summary-grid">
+        <section class="summary-card">
+            <div class="summary-label">총 다이빙 횟수</div>
+            <div class="summary-value">{{ total_dives or 0 }}</div>
+        </section>
 
-<tr>
-<td>Total Dives</td>
-<td>{{ total_dives }}</td>
-</tr>
+        <section class="summary-card">
+            <div class="summary-label">총 다이빙 시간</div>
+            <div class="summary-value">{{ total_dive_time or 0 }} 분</div>
+        </section>
 
-<tr>
-<td>Max Depth</td>
-<td>{{ max_depth }} m</td>
-</tr>
+        <section class="summary-card">
+            <div class="summary-label">평균 수온</div>
+            <div class="summary-value">
+                {% if avg_water_temp is not none %}
+                {{ "%.1f"|format(avg_water_temp) }} ℃
+                {% else %}
+                -
+                {% endif %}
+            </div>
+        </section>
 
-<tr>
-<td>Average Depth</td>
-<td>{{ avg_depth }} m</td>
-</tr>
+        <section class="summary-card">
+            <div class="summary-label">가장 많이 방문한 포인트</div>
+            <div class="summary-value">
+                {% if most_visited_point %}
+                {{ most_visited_point.name }}
+                {% else %}
+                -
+                {% endif %}
+            </div>
+        </section>
+    </div>
 
-<tr>
-<td>Total Dive Time</td>
-<td>{{ total_dive_time }} min</td>
-</tr>
+    <section class="stats-card">
+        <h3>기본 통계</h3>
+        <table class="stats-table">
+            <tr>
+                <th>항목</th>
+                <th>값</th>
+            </tr>
+            <tr>
+                <td>총 다이빙 횟수</td>
+                <td>{{ total_dives or 0 }}</td>
+            </tr>
+            <tr>
+                <td>최대 수심</td>
+                <td>{{ max_depth if max_depth is not none else '-' }}{% if max_depth is not none %} m{% endif %}</td>
+            </tr>
+            <tr>
+                <td>평균 수심</td>
+                <td>
+                    {% if avg_depth is not none %}
+                    {{ "%.1f"|format(avg_depth) }} m
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>총 다이빙 시간</td>
+                <td>{{ total_dive_time or 0 }} 분</td>
+            </tr>
+            <tr>
+                <td>평균 수온</td>
+                <td>
+                    {% if avg_water_temp is not none %}
+                    {{ "%.1f"|format(avg_water_temp) }} ℃
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+            </tr>
+        </table>
+    </section>
 
-</table>
+    <br>
 
-<br>
+    <div class="stats-grid">
+        <section class="stats-card">
+            <h3>월별 다이빙 횟수</h3>
+            {% if monthly_dives %}
+            <div class="bar-list">
+                {% for row in monthly_dives %}
+                <div class="bar-row">
+                    <div class="bar-label" title="{{ row.month }}">{{ row.month }}</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width: {{ (row.dive_count / max_monthly_dives * 100) if max_monthly_dives else 0 }}%;"></div>
+                    </div>
+                    <div class="bar-count">{{ row.dive_count }}</div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="empty-text">표시할 로그가 없습니다.</p>
+            {% endif %}
+        </section>
 
-<a href="/map"><button>지도</button></a>
+        <section class="stats-card">
+            <h3>지역별 다이빙 횟수</h3>
+            {% if region_dives %}
+            <div class="bar-list">
+                {% for row in region_dives %}
+                <div class="bar-row">
+                    <div class="bar-label" title="{{ row.name }}">{{ row.name }}</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width: {{ (row.dive_count / max_region_dives * 100) if max_region_dives else 0 }}%;"></div>
+                    </div>
+                    <div class="bar-count">{{ row.dive_count }}</div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="empty-text">표시할 로그가 없습니다.</p>
+            {% endif %}
+        </section>
+
+        <section class="stats-card">
+            <h3>포인트별 다이빙 횟수</h3>
+            {% if point_dives %}
+            <div class="bar-list">
+                {% for row in point_dives %}
+                <div class="bar-row">
+                    <div class="bar-label" title="{{ row.name }}">{{ row.name }}</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width: {{ (row.dive_count / max_point_dives * 100) if max_point_dives else 0 }}%;"></div>
+                    </div>
+                    <div class="bar-count">{{ row.dive_count }}</div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="empty-text">표시할 로그가 없습니다.</p>
+            {% endif %}
+        </section>
+    </div>
+
+    <div class="bottom-actions">
+        <a href="/map"><button>지도</button></a>
+    </div>
+</div>
 
 {% endblock %}

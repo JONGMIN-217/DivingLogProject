@@ -1,84 +1,287 @@
 {% extends "base.html" %}
 
+{% block head %}
+<style>
+.log-detail-page {
+    max-width: 980px;
+}
+
+.detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.detail-title h2 {
+    margin: 0 0 8px;
+}
+
+.detail-title p {
+    margin: 0;
+    color: #666;
+}
+
+.action-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.action-group form {
+    margin: 0;
+}
+
+.btn {
+    display: inline-block;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    background: #fff;
+    color: #222;
+    font: inherit;
+    line-height: 1.2;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.btn-primary {
+    border-color: #2364d2;
+    background: #2364d2;
+    color: #fff;
+}
+
+.btn-danger {
+    border-color: #c9342c;
+    background: #c9342c;
+    color: #fff;
+}
+
+.detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.detail-card {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #fff;
+    padding: 18px;
+}
+
+.detail-card h3 {
+    margin: 0 0 14px;
+    font-size: 18px;
+}
+
+.info-list {
+    display: grid;
+    gap: 12px;
+}
+
+.info-row {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 12px;
+    align-items: baseline;
+}
+
+.info-label {
+    color: #666;
+    font-size: 14px;
+}
+
+.info-value {
+    font-weight: 600;
+    word-break: break-word;
+}
+
+.star-rating {
+    color: #f2a900;
+    letter-spacing: 1px;
+}
+
+.note-card,
+.photo-card {
+    margin-top: 16px;
+}
+
+.note-text {
+    margin: 0;
+    white-space: pre-wrap;
+    line-height: 1.6;
+}
+
+.log-photo {
+    display: block;
+    width: 100%;
+    max-width: 560px;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+}
+
+.empty-value {
+    color: #888;
+    font-weight: 400;
+}
+
+.bottom-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 20px;
+}
+
+@media (max-width: 640px) {
+    .detail-header {
+        display: block;
+    }
+
+    .action-group {
+        margin-top: 14px;
+    }
+
+    .info-row {
+        grid-template-columns: 86px 1fr;
+    }
+}
+</style>
+{% endblock %}
+
 {% block content %}
 
-<h2>Dive Log #{{ log.id }}</h2>
+{% set dive_point = log.dive_point %}
+{% set area = dive_point.area if dive_point else none %}
+{% set region = area.region if area else none %}
 
-<table border="1">
+<div class="log-detail-page">
+    <div class="detail-header">
+        <div class="detail-title">
+            <h2>다이빙 로그 #{{ log.id }}</h2>
+            <p>{{ log.dive_date }} · {{ dive_point.name if dive_point else '-' }}</p>
+        </div>
 
-<tr>
-<td>날짜</td>
-<td>{{ log.dive_date }}</td>
-</tr>
+        <div class="action-group">
+            <a class="btn btn-primary" href="/log/{{ log.id }}/edit">수정</a>
+            <form action="/log/{{ log.id }}/delete" method="post" onsubmit="return confirm('이 로그를 삭제하시겠습니까?');">
+                <button class="btn btn-danger" type="submit">삭제</button>
+            </form>
+        </div>
+    </div>
 
-<tr>
-<td>포인트</td>
-<td>{{ log.dive_point.name }}</td>
-</tr>
+    <div class="detail-grid">
+        <section class="detail-card">
+            <h3>위치 정보</h3>
+            <div class="info-list">
+                <div class="info-row">
+                    <div class="info-label">날짜</div>
+                    <div class="info-value">{{ log.dive_date }}</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">지역</div>
+                    <div class="info-value">{{ region.name if region else '-' }}</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">세부지역</div>
+                    <div class="info-value">{{ area.name if area else '-' }}</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">포인트</div>
+                    <div class="info-value">{{ dive_point.name if dive_point else '-' }}</div>
+                </div>
+            </div>
+        </section>
 
-<tr>
-<td>최대수심</td>
-<td>{{ log.max_depth }} m</td>
-</tr>
+        <section class="detail-card">
+            <h3>다이빙 시간</h3>
+            <div class="info-list">
+                <div class="info-row">
+                    <div class="info-label">입수시간</div>
+                    <div class="info-value">{{ log.entry_time.strftime('%H:%M') if log.entry_time else '-' }}</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">출수시간</div>
+                    <div class="info-value">{{ log.exit_time.strftime('%H:%M') if log.exit_time else '-' }}</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">다이브타임</div>
+                    <div class="info-value">{{ log.dive_time if log.dive_time is not none else '-' }}{% if log.dive_time is not none %} 분{% endif %}</div>
+                </div>
+            </div>
+        </section>
 
-<tr>
-<td>평균수심</td>
-<td>{{ log.avg_depth }} m</td>
-</tr>
+        <section class="detail-card">
+            <h3>수심 및 환경</h3>
+            <div class="info-list">
+                <div class="info-row">
+                    <div class="info-label">최대수심</div>
+                    <div class="info-value">{{ log.max_depth if log.max_depth is not none else '-' }}{% if log.max_depth is not none %} m{% endif %}</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">평균수심</div>
+                    <div class="info-value">{{ log.avg_depth if log.avg_depth is not none else '-' }}{% if log.avg_depth is not none %} m{% endif %}</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">수온</div>
+                    <div class="info-value">{{ log.water_temp if log.water_temp is not none else '-' }}{% if log.water_temp is not none %} ℃{% endif %}</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">시야</div>
+                    <div class="info-value">
+                        {% if log.visibility %}
+                        <span class="star-rating">{% for i in range(log.visibility|int) %}★{% endfor %}</span>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </section>
 
-<tr>
-<td>다이브타임</td>
-<td>{{ log.dive_time }} min</td>
-</tr>
+        <section class="detail-card">
+            <h3>버디 및 잔압</h3>
+            <div class="info-list">
+                <div class="info-row">
+                    <div class="info-label">버디</div>
+                    <div class="info-value">{{ log.buddy if log.buddy else '-' }}</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">입수잔압</div>
+                    <div class="info-value">{{ log.start_pressure if log.start_pressure is not none else '-' }}{% if log.start_pressure is not none %} bar{% endif %}</div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">출수잔압</div>
+                    <div class="info-value">{{ log.end_pressure if log.end_pressure is not none else '-' }}{% if log.end_pressure is not none %} bar{% endif %}</div>
+                </div>
+            </div>
+        </section>
+    </div>
 
-<tr>
-<td>수온</td>
-<td>{{ log.water_temp }}</td>
-</tr>
+    <section class="detail-card note-card">
+        <h3>메모</h3>
+        {% if log.note %}
+        <p class="note-text">{{ log.note }}</p>
+        {% else %}
+        <p class="note-text empty-value">-</p>
+        {% endif %}
+    </section>
 
-<tr>
-<td>시야</td>
-<td>
-{% for i in range(log.visibility or 0) %}
-★
-{% endfor %}
-</td>
-</tr>
+    <section class="detail-card photo-card">
+        <h3>업로드한 사진</h3>
+        {% if log.image_path %}
+        <img class="log-photo" src="/{{ log.image_path }}" alt="Dive log photo">
+        {% else %}
+        <div class="empty-value">-</div>
+        {% endif %}
+    </section>
 
-<tr>
-<td>버디</td>
-<td>{{ log.buddy }}</td>
-</tr>
-
-<tr>
-<td>입수잔압</td>
-<td>{{ log.start_pressure }} bar</td>
-</tr>
-
-<tr>
-<td>출수잔압</td>
-<td>{{ log.end_pressure }} bar</td>
-</tr>
-
-<tr>
-<td>메모</td>
-<td>{{ log.note }}</td>
-</tr>
-
-{% if log.image_path %}
-<tr>
-<td>사진</td>
-<td>
-    <img src="/{{ log.image_path }}" width="300" alt="Dive log photo">
-</td>
-</tr>
-{% endif %}
-
-</table>
-
-<br>
-
-<a href="/point/{{ log.dive_point_id }}/logs"><button>포인트 로그</button></a>
-<a href="/logs"><button>전체 로그</button></a>
+    <div class="bottom-links">
+        <a class="btn" href="/point/{{ log.dive_point_id }}/logs">포인트 로그</a>
+        <a class="btn" href="/logs">전체 로그</a>
+    </div>
+</div>
 
 {% endblock %}

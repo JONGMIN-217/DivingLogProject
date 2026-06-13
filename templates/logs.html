@@ -1,59 +1,240 @@
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>All Logs</title>
-</head>
+{% extends "base.html" %}
 
-<body>
-<div style="margin-bottom:20px;">
-<a href="/"><button>Home</button></a>
-<a href="/map"><button>Map</button></a>
-<a href="/logs"><button>Logs</button></a>
-<a href="/log/add"><button>Add Log</button></a>
+{% block head %}
+<style>
+.logs-page {
+    max-width: 1120px;
+}
+
+.filter-panel {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 18px;
+    background: #fff;
+}
+
+.filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    align-items: end;
+}
+
+.filter-field label {
+    display: block;
+    margin-bottom: 6px;
+    color: #555;
+    font-size: 14px;
+}
+
+.filter-field input,
+.filter-field select {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    font: inherit;
+}
+
+.filter-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.btn {
+    display: inline-block;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    background: #fff;
+    color: #222;
+    font: inherit;
+    line-height: 1.2;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.btn-primary {
+    border-color: #2364d2;
+    background: #2364d2;
+    color: #fff;
+}
+
+.btn-danger {
+    border-color: #c9342c;
+    background: #c9342c;
+    color: #fff;
+}
+
+.result-summary {
+    margin: 0 0 10px;
+    color: #666;
+}
+
+.logs-table-wrap {
+    overflow-x: auto;
+}
+
+.logs-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+}
+
+.logs-table th,
+.logs-table td {
+    padding: 10px;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.logs-table th {
+    background: #f6f7f9;
+}
+
+.logs-table td.actions {
+    display: flex;
+    gap: 8px;
+}
+
+.logs-table td.actions form {
+    margin: 0;
+}
+
+.empty-row {
+    color: #777;
+    text-align: center;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="logs-page">
+    <h2>전체 다이빙 로그</h2>
+
+    <form class="filter-panel" action="/logs" method="get">
+        <div class="filter-grid">
+            <div class="filter-field">
+                <label for="dive_date">날짜</label>
+                <input type="date" id="dive_date" name="dive_date" value="{{ filters.dive_date }}">
+            </div>
+
+            <div class="filter-field">
+                <label for="region_id">지역</label>
+                <select id="region_id" name="region_id">
+                    <option value="">전체</option>
+                    {% for region in regions %}
+                    <option value="{{ region.id }}" {% if filters.region_id == region.id|string %}selected{% endif %}>{{ region.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="filter-field">
+                <label for="area_id">세부지역</label>
+                <select id="area_id" name="area_id">
+                    <option value="">전체</option>
+                    {% for area in areas %}
+                    <option value="{{ area.id }}" {% if filters.area_id == area.id|string %}selected{% endif %}>{{ area.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="filter-field">
+                <label for="point_id">포인트</label>
+                <select id="point_id" name="point_id">
+                    <option value="">전체</option>
+                    {% for point in points %}
+                    <option value="{{ point.id }}" {% if filters.point_id == point.id|string %}selected{% endif %}>{{ point.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="filter-field">
+                <label for="buddy">버디</label>
+                <input type="search" id="buddy" name="buddy" value="{{ filters.buddy }}" placeholder="버디 이름 검색">
+            </div>
+
+            <div class="filter-field">
+                <label for="sort">정렬 기준</label>
+                <select id="sort" name="sort">
+                    <option value="date" {% if filters.sort == "date" %}selected{% endif %}>날짜</option>
+                    <option value="region" {% if filters.sort == "region" %}selected{% endif %}>지역</option>
+                    <option value="area" {% if filters.sort == "area" %}selected{% endif %}>세부지역</option>
+                    <option value="point" {% if filters.sort == "point" %}selected{% endif %}>포인트</option>
+                    <option value="buddy" {% if filters.sort == "buddy" %}selected{% endif %}>버디</option>
+                    <option value="id" {% if filters.sort == "id" %}selected{% endif %}>번호</option>
+                </select>
+            </div>
+
+            <div class="filter-field">
+                <label for="direction">정렬 방향</label>
+                <select id="direction" name="direction">
+                    <option value="desc" {% if filters.direction == "desc" %}selected{% endif %}>내림차순</option>
+                    <option value="asc" {% if filters.direction == "asc" %}selected{% endif %}>오름차순</option>
+                </select>
+            </div>
+
+            <div class="filter-actions">
+                <button class="btn btn-primary" type="submit">검색</button>
+                <a class="btn" href="/logs">초기화</a>
+            </div>
+        </div>
+    </form>
+
+    <p class="result-summary">총 {{ logs|length }}개 로그</p>
+
+    <div class="logs-table-wrap">
+        <table class="logs-table">
+            <tr>
+                <th>번호</th>
+                <th>날짜</th>
+                <th>지역</th>
+                <th>세부지역</th>
+                <th>포인트</th>
+                <th>버디</th>
+                <th>최대수심</th>
+                <th>입수</th>
+                <th>출수</th>
+                <th>다이브타임</th>
+                <th>관리</th>
+            </tr>
+
+            {% for log in logs %}
+            {% set point = log.dive_point %}
+            {% set area = point.area if point else none %}
+            {% set region = area.region if area else none %}
+            <tr>
+                <td><a href="/log/{{ log.id }}">#{{ log.id }}</a></td>
+                <td>{{ log.dive_date }}</td>
+                <td>{{ region.name if region else '-' }}</td>
+                <td>{{ area.name if area else '-' }}</td>
+                <td>{{ point.name if point else '-' }}</td>
+                <td>{{ log.buddy if log.buddy else '-' }}</td>
+                <td>{{ log.max_depth if log.max_depth is not none else '-' }}{% if log.max_depth is not none %} m{% endif %}</td>
+                <td>{{ log.entry_time.strftime('%H:%M') if log.entry_time else '-' }}</td>
+                <td>{{ log.exit_time.strftime('%H:%M') if log.exit_time else '-' }}</td>
+                <td>{{ log.dive_time if log.dive_time is not none else '-' }}{% if log.dive_time is not none %} 분{% endif %}</td>
+                <td class="actions">
+                    <a class="btn" href="/log/{{ log.id }}/edit">수정</a>
+                    <form action="/log/{{ log.id }}/delete" method="post" onsubmit="return confirm('이 로그를 삭제하시겠습니까?');">
+                        <button class="btn btn-danger" type="submit">삭제</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td class="empty-row" colspan="11">조건에 맞는 로그가 없습니다.</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
 </div>
-<h2>전체 다이빙 로그</h2>
 
-<table border="1">
-
-<tr>
-<th>Dive #</th>
-<th>Date</th>
-<th>Depth</th>
-<th>Time</th>
-</tr>
-
-{% for log in logs %}
-
-<tr>
-
-<td>
-<a href="/log/{{ log.id }}">
-#{{ log.id }}
-</a>
-</td>
-
-<td>
-{{ log.dive_date }}
-</td>
-
-<td>
-{{ log.max_depth }} m
-</td>
-
-<td>
-{{ log.dive_time }} min
-</td>
-
-</tr>
-
-{% endfor %}
-
-</table>
-
-<br>
-
-<a href="/">메인으로</a>
-
-</body>
-</html>
+{% endblock %}

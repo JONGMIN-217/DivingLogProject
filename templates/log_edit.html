@@ -1,93 +1,8 @@
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Edit Log</title>
-</head>
-
-<body>
-<div style="margin-bottom:20px;">
-<a href="/"><button>Home</button></a>
-<a href="/map"><button>Map</button></a>
-<a href="/logs"><button>Logs</button></a>
-<a href="/log/add"><button>Add Log</button></a>
-</div>
-<h2>Edit Dive Log #{{ log.id }}</h2>
-
-<form action="/log/{{ log.id }}/edit" method="post">
-
-포인트
-
-<select name="dive_point_id">
-
-{% for p in points %}
-
-<option value="{{ p.id }}"
-{% if p.id == log.dive_point_id %}
-selected
-{% endif %}
->
-
-{{ p.name }}
-
-</option>
-
-{% endfor %}
-
-</select>
-
-<br><br>
-
-날짜
-<input type="date" name="dive_date" value="{{ log.dive_date }}">
-
-<br><br>
-
-최대수심
-<input type="number" step="0.1" name="max_depth" value="{{ log.max_depth }}">
-
-<br><br>
-
-평균수심
-<input type="number" step="0.1" name="avg_depth" value="{{ log.avg_depth }}">
-
-<br><br>
-
-다이브타임
-<input type="number" name="dive_time" value="{{ log.dive_time }}">
-
-<br><br>
-
-수온
-<input type="number" step="0.1" name="water_temp" value="{{ log.water_temp }}">
-
-<br><br>
-
-시야
-<input type="number" step="0.1" name="visibility" value="{{ log.visibility }}">
-
-<br><br>
-
-메모
-<textarea name="note">{{ log.note }}</textarea>
-
-<br><br>
-
-<button type="submit">수정 저장</button>
-
-</form>
-
-<br>
-
-<a href="/map">지도 돌아가기</a>
-
-</body>
-</html>
 {% extends "base.html" %}
 
 {% block content %}
 
-<h2>Edit Dive Log #{{ log.id }}</h2>
+<h2>다이빙 로그 수정 #{{ log.id }}</h2>
 
 <form action="/log/{{ log.id }}/edit" method="post">
 
@@ -121,8 +36,18 @@ selected
 
 <br><br>
 
+입수시간<br>
+<input type="time" name="entry_time" id="startTime" value="{{ log.entry_time.strftime('%H:%M') if log.entry_time else '' }}">
+
+<br><br>
+
+출수시간<br>
+<input type="time" name="exit_time" id="endTime" value="{{ log.exit_time.strftime('%H:%M') if log.exit_time else '' }}">
+
+<br><br>
+
 다이브타임<br>
-<input type="number" name="dive_time" value="{{ log.dive_time }}">
+<input type="number" name="dive_time" id="diveTime" value="{{ log.dive_time }}">
 
 <br><br>
 
@@ -170,5 +95,41 @@ selected
 
 <a href="/log/{{ log.id }}"><button>상세 보기</button></a>
 <a href="/logs"><button>전체 로그</button></a>
+
+<script>
+function calculateDiveTime(){
+ const start=document.getElementById("startTime").value
+ const end=document.getElementById("endTime").value
+
+ if(!start || !end) return
+
+ const s=new Date(`1970-01-01T${start}:00`)
+ const e=new Date(`1970-01-01T${end}:00`)
+
+ const diff=(e-s)/60000
+
+ if(diff>=0){
+  document.getElementById("diveTime").value=diff
+ }
+}
+
+function calculateEndTime(){
+ const start=document.getElementById("startTime").value
+ const diveTime=document.getElementById("diveTime").value
+
+ if(!start || !diveTime) return
+
+ const s=new Date(`1970-01-01T${start}:00`)
+ s.setMinutes(s.getMinutes()+parseInt(diveTime))
+
+ const h=String(s.getHours()).padStart(2,'0')
+ const m=String(s.getMinutes()).padStart(2,'0')
+
+ document.getElementById("endTime").value=`${h}:${m}`
+}
+
+document.getElementById("endTime").addEventListener("change",calculateDiveTime)
+document.getElementById("diveTime").addEventListener("change",calculateEndTime)
+</script>
 
 {% endblock %}

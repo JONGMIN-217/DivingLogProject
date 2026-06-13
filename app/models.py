@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Float, Date
+from sqlalchemy import Column, Integer, String, ForeignKey, Float, Date, Time
 from datetime import date
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -42,6 +42,8 @@ class DiveLog(Base):
 
     max_depth = Column(Float)
     avg_depth = Column(Float)
+    entry_time = Column(Time, nullable=True)
+    exit_time = Column(Time, nullable=True)
     dive_time = Column(Integer)  # 분 단위
     water_temp = Column(Float)
     visibility = Column(Integer)

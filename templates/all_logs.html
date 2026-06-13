@@ -11,6 +11,8 @@
 <th>날짜</th>
 <th>포인트</th>
 <th>최대수심</th>
+<th>입수시간</th>
+<th>출수시간</th>
 <th>다이브타임</th>
 <th>시야</th>
 <th>버디</th>
@@ -24,7 +26,9 @@
 <td>{{ log.dive_date }}</td>
 <td>{{ log.dive_point.name }}</td>
 <td>{{ log.max_depth }} m</td>
-<td>{{ log.dive_time }} min</td>
+<td>{{ log.entry_time.strftime('%H:%M') if log.entry_time else '-' }}</td>
+<td>{{ log.exit_time.strftime('%H:%M') if log.exit_time else '-' }}</td>
+<td>{{ log.dive_time }} 분</td>
 <td>
 {% for i in range(log.visibility or 0) %}
 ★
@@ -32,9 +36,9 @@
 </td>
 <td>{{ log.buddy }}</td>
 <td>
-<a href="/log/{{ log.id }}/edit">Edit</a>
+<a href="/log/{{ log.id }}/edit">수정</a>
 <form action="/log/{{ log.id }}/delete" method="post" style="display:inline;">
-<button type="submit">Delete</button>
+<button type="submit">삭제</button>
 </form>
 </td>
 </tr>

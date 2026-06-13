@@ -6,20 +6,20 @@
 
 <body>
 <div style="margin-bottom:20px;">
-<a href="/"><button>Home</button></a>
-<a href="/map"><button>Map</button></a>
-<a href="/logs"><button>Logs</button></a>
-<a href="/log/add"><button>Add Log</button></a>
+<a href="/"><button>홈</button></a>
+<a href="/map"><button>지도</button></a>
+<a href="/logs"><button>로그</button></a>
+<a href="/log/add"><button>로그 추가</button></a>
 </div>
 <h2>다이빙 로그 저장 완료</h2>
 
 <p>
-<b>Dive #{{ log.id }}</b><br>
+<b>다이브 #{{ log.id }}</b><br>
 날짜: {{ log.dive_date }}<br>
 포인트: {{ log.dive_point.name }}<br>
 최대 수심: {{ log.max_depth }} m<br>
-다이브 타임: {{ log.dive_time }} min<br>
-Buddy: {{ log.buddy }}
+다이브 타임: {{ log.dive_time }} 분<br>
+버디: {{ log.buddy }}
 </p>
 
 <hr>
