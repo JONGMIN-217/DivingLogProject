@@ -33,6 +33,32 @@
     margin: 0;
 }
 
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.summary-card {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #fff;
+    padding: 14px;
+}
+
+.summary-label {
+    margin-bottom: 6px;
+    color: #666;
+    font-size: 13px;
+}
+
+.summary-value {
+    font-size: 20px;
+    font-weight: 700;
+    word-break: break-word;
+}
+
 .btn {
     display: inline-block;
     box-sizing: border-box;
@@ -172,10 +198,36 @@
         </div>
     </div>
 
+    <div class="summary-grid">
+        <section class="summary-card">
+            <div class="summary-label">로그 번호</div>
+            <div class="summary-value">#{{ log.id }}</div>
+        </section>
+
+        <section class="summary-card">
+            <div class="summary-label">날짜</div>
+            <div class="summary-value">{{ log.dive_date }}</div>
+        </section>
+
+        <section class="summary-card">
+            <div class="summary-label">포인트</div>
+            <div class="summary-value">{{ dive_point.name if dive_point else '-' }}</div>
+        </section>
+
+        <section class="summary-card">
+            <div class="summary-label">다이브타임</div>
+            <div class="summary-value">{{ log.dive_time if log.dive_time is not none else '-' }}{% if log.dive_time is not none %} 분{% endif %}</div>
+        </section>
+    </div>
+
     <div class="detail-grid">
         <section class="detail-card">
-            <h3>위치 정보</h3>
+            <h3>기본 및 위치 정보</h3>
             <div class="info-list">
+                <div class="info-row">
+                    <div class="info-label">로그 번호</div>
+                    <div class="info-value">#{{ log.id }}</div>
+                </div>
                 <div class="info-row">
                     <div class="info-label">날짜</div>
                     <div class="info-value">{{ log.dive_date }}</div>
@@ -272,7 +324,7 @@
     <section class="detail-card photo-card">
         <h3>업로드한 사진</h3>
         {% if log.image_path %}
-        <img class="log-photo" src="/{{ log.image_path }}" alt="Dive log photo">
+        <img class="log-photo" src="/{{ log.image_path }}" alt="업로드한 다이빙 사진">
         {% else %}
         <div class="empty-value">-</div>
         {% endif %}
