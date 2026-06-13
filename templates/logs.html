@@ -38,6 +38,12 @@
     font: inherit;
 }
 
+.filter-field select:disabled {
+    background: #f2f3f5;
+    color: #888;
+    cursor: not-allowed;
+}
+
 .filter-actions {
     display: flex;
     flex-wrap: wrap;
@@ -138,21 +144,23 @@
 
             <div class="filter-field">
                 <label for="area_id">세부지역</label>
-                <select id="area_id" name="area_id">
+                <select id="area_id" name="area_id" {% if not filters.region_id %}disabled{% endif %}>
+                    {% if filters.region_id %}
                     <option value="">전체</option>
-                    {% for area in areas %}
-                    <option value="{{ area.id }}" {% if filters.area_id == area.id|string %}selected{% endif %}>{{ area.name }}</option>
-                    {% endfor %}
+                    {% else %}
+                    <option value="">지역을 먼저 선택하세요</option>
+                    {% endif %}
                 </select>
             </div>
 
             <div class="filter-field">
                 <label for="point_id">포인트</label>
-                <select id="point_id" name="point_id">
+                <select id="point_id" name="point_id" {% if not filters.area_id %}disabled{% endif %}>
+                    {% if filters.area_id %}
                     <option value="">전체</option>
-                    {% for point in points %}
-                    <option value="{{ point.id }}" {% if filters.point_id == point.id|string %}selected{% endif %}>{{ point.name }}</option>
-                    {% endfor %}
+                    {% else %}
+                    <option value="">세부지역을 먼저 선택하세요</option>
+                    {% endif %}
                 </select>
             </div>
 
@@ -236,5 +244,88 @@
         </table>
     </div>
 </div>
+
+<script>
+const selectedRegionId = "{{ filters.region_id }}";
+const selectedAreaId = "{{ filters.area_id }}";
+const selectedPointId = "{{ filters.point_id }}";
+
+const regionSelect = document.getElementById("region_id");
+const areaSelect = document.getElementById("area_id");
+const pointSelect = document.getElementById("point_id");
+
+function resetSelect(select, message, disabled){
+    select.innerHTML = "";
+    const option = document.createElement("option");
+    option.value = "";
+    option.text = message;
+    select.appendChild(option);
+    select.disabled = disabled;
+}
+
+function fillSelect(select, items, selectedValue){
+    select.innerHTML = "";
+
+    const allOption = document.createElement("option");
+    allOption.value = "";
+    allOption.text = "전체";
+    select.appendChild(allOption);
+
+    items.forEach(item => {
+        const option = document.createElement("option");
+        option.value = item.id;
+        option.text = item.name;
+        if(String(item.id) === String(selectedValue)){
+            option.selected = true;
+        }
+        select.appendChild(option);
+    });
+
+    select.disabled = false;
+}
+
+async function loadAreas(regionId, selectedValue){
+    resetSelect(pointSelect, "세부지역을 먼저 선택하세요", true);
+
+    if(!regionId){
+        resetSelect(areaSelect, "지역을 먼저 선택하세요", true);
+        return;
+    }
+
+    const res = await fetch(`/areas?region_id=${regionId}`);
+    const areas = await res.json();
+    fillSelect(areaSelect, areas, selectedValue);
+}
+
+async function loadPoints(areaId, selectedValue){
+    if(!areaId){
+        resetSelect(pointSelect, "세부지역을 먼저 선택하세요", true);
+        return;
+    }
+
+    const res = await fetch(`/divepoints?area_id=${areaId}`);
+    const points = await res.json();
+    fillSelect(pointSelect, points, selectedValue);
+}
+
+regionSelect.addEventListener("change", async function(){
+    await loadAreas(this.value, "");
+});
+
+areaSelect.addEventListener("change", async function(){
+    await loadPoints(this.value, "");
+});
+
+if(selectedRegionId){
+    loadAreas(selectedRegionId, selectedAreaId).then(() => {
+        if(selectedAreaId){
+            loadPoints(selectedAreaId, selectedPointId);
+        }
+    });
+}else{
+    resetSelect(areaSelect, "지역을 먼저 선택하세요", true);
+    resetSelect(pointSelect, "세부지역을 먼저 선택하세요", true);
+}
+</script>
 
 {% endblock %}
