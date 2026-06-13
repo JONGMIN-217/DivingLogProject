@@ -1,41 +1,199 @@
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>다이빙 로그</title>
-</head>
+{% extends "base.html" %}
 
-<body>
-<div style="margin-bottom:20px;">
-<a href="/"><button>홈</button></a>
-<a href="/map"><button>지도</button></a>
-<a href="/logs"><button>로그</button></a>
-<a href="/log/add"><button>로그 추가</button></a>
+{% block head %}
+<style>
+.home-page {
+    max-width: 1080px;
+}
+
+.home-header {
+    margin-bottom: 20px;
+}
+
+.home-header h1 {
+    margin: 0 0 8px;
+}
+
+.home-header p {
+    margin: 0;
+    color: #666;
+}
+
+.summary-grid,
+.menu-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+}
+
+.summary-card,
+.menu-card,
+.recent-card {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #fff;
+}
+
+.summary-card {
+    padding: 16px;
+}
+
+.summary-label {
+    margin-bottom: 8px;
+    color: #666;
+    font-size: 14px;
+}
+
+.summary-value {
+    font-size: 26px;
+    font-weight: 700;
+}
+
+.menu-card {
+    display: block;
+    padding: 18px;
+    color: #222;
+    text-decoration: none;
+}
+
+.menu-card strong {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 18px;
+}
+
+.menu-card span {
+    color: #666;
+    line-height: 1.5;
+}
+
+.menu-card:hover {
+    border-color: #2364d2;
+}
+
+.recent-card {
+    padding: 18px;
+}
+
+.recent-card h2 {
+    margin: 0 0 14px;
+    font-size: 20px;
+}
+
+.recent-list {
+    display: grid;
+    gap: 10px;
+}
+
+.recent-item {
+    display: grid;
+    grid-template-columns: 90px 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid #e5e5e5;
+    border-radius: 8px;
+    text-decoration: none;
+    color: #222;
+}
+
+.recent-item:hover {
+    border-color: #2364d2;
+}
+
+.recent-date {
+    color: #666;
+}
+
+.recent-point {
+    font-weight: 700;
+}
+
+.recent-meta {
+    color: #666;
+    white-space: nowrap;
+}
+
+.empty-text {
+    color: #777;
+}
+
+@media (max-width: 640px) {
+    .recent-item {
+        grid-template-columns: 1fr;
+    }
+
+    .recent-meta {
+        white-space: normal;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="home-page">
+    <header class="home-header">
+        <h1>다이빙 로그</h1>
+        <p>자주 쓰는 기능과 최근 기록을 한곳에서 확인하세요.</p>
+    </header>
+
+    <section class="summary-grid">
+        <div class="summary-card">
+            <div class="summary-label">총 다이빙 횟수</div>
+            <div class="summary-value">{{ total_dives or 0 }}회</div>
+        </div>
+
+        <div class="summary-card">
+            <div class="summary-label">총 다이빙 시간</div>
+            <div class="summary-value">{{ total_dive_time or 0 }}분</div>
+        </div>
+    </section>
+
+    <section class="menu-grid">
+        <a class="menu-card" href="/map">
+            <strong>지도 보기</strong>
+            <span>다이빙 포인트를 지도에서 확인합니다.</span>
+        </a>
+
+        <a class="menu-card" href="/log/add">
+            <strong>로그 추가</strong>
+            <span>새로운 다이빙 기록을 작성합니다.</span>
+        </a>
+
+        <a class="menu-card" href="/logs">
+            <strong>전체 로그</strong>
+            <span>기록을 검색하고 필터로 찾아봅니다.</span>
+        </a>
+
+        <a class="menu-card" href="/stats">
+            <strong>통계 보기</strong>
+            <span>누적 기록과 방문 포인트를 확인합니다.</span>
+        </a>
+    </section>
+
+    <section class="recent-card">
+        <h2>최근 로그</h2>
+
+        {% if recent_logs %}
+        <div class="recent-list">
+            {% for log in recent_logs %}
+            <a class="recent-item" href="/log/{{ log.id }}">
+                <div class="recent-date">{{ log.dive_date }}</div>
+                <div class="recent-point">{{ log.dive_point.name if log.dive_point else '-' }}</div>
+                <div class="recent-meta">
+                    {{ log.max_depth if log.max_depth is not none else '-' }}{% if log.max_depth is not none %} m{% endif %}
+                    ·
+                    {{ log.dive_time if log.dive_time is not none else '-' }}{% if log.dive_time is not none %}분{% endif %}
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="empty-text">아직 등록된 로그가 없습니다.</p>
+        {% endif %}
+    </section>
 </div>
 
-<h1>다이빙 로그</h1>
-
-<h3>메뉴</h3>
-
-<ul>
-
-<li>
-<a href="/map">지도 보기</a>
-</li>
-
-<li>
-<a href="/logs">전체 로그 보기</a>
-</li>
-
-<li>
-<a href="/log/add">로그 추가</a>
-</li>
-
-<li>
-<a href="/stats">다이빙 통계</a>
-</li>
-
-</ul>
-
-</body>
-</html>
+{% endblock %}

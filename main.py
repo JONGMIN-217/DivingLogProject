@@ -402,12 +402,31 @@ def log_detail(request: Request, log_id: int):
 @app.get("/")
 def home(request: Request):
 
-    return templates.TemplateResponse(
-        "home.html",
-        {
-            "request": request
-        }
-    )
+    db = SessionLocal()
+    try:
+        total_dives = db.query(func.count(DiveLog.id)).scalar()
+        total_dive_time = db.query(func.sum(DiveLog.dive_time)).scalar()
+        recent_logs = (
+            db.query(DiveLog)
+            .options(
+                joinedload(DiveLog.dive_point)
+            )
+            .order_by(DiveLog.dive_date.desc(), DiveLog.id.desc())
+            .limit(3)
+            .all()
+        )
+
+        return templates.TemplateResponse(
+            "home.html",
+            {
+                "request": request,
+                "total_dives": total_dives,
+                "total_dive_time": total_dive_time,
+                "recent_logs": recent_logs
+            }
+        )
+    finally:
+        db.close()
 
 @app.get("/logs")
 def all_logs(request: Request):
