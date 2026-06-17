@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>해양·기상정보</h2>
+
+{% if error %}
+<div style="color:red; font-weight:bold;">{{ error }}</div>
+{% endif %}
+
+{% if message %}
+<div style="color:green; font-weight:bold;">{{ message }}</div>
+{% endif %}
+
+<section>
+<h3>수동 입력</h3>
+<form action="/marine-weather" method="post">
+<label for="weatherDate">날짜</label><br>
+<input type="date" id="weatherDate" name="weather_date" required>
+
+<br><br>
+
+<label for="countrySelect">국가</label><br>
+<select id="countrySelect">
+<option value="">선택</option>
+{% for country in countries %}
+<option value="{{ country.id }}">{{ country.name }}</option>
+{% endfor %}
+</select>
+
+<br><br>
+
+<label for="regionSelect">지역</label><br>
+<select id="regionSelect" name="region_id" required>
+<option value="">국가를 먼저 선택하세요</option>
+</select>
+
+<br><br>
+
+<label for="waterTemp">수온</label><br>
+<input type="number" step="0.1" id="waterTemp" name="water_temp">
+
+<br><br>
+
+<label for="waveHeight">파고</label><br>
+<input type="number" step="0.1" id="waveHeight" name="wave_height">
+
+<br><br>
+
+<label for="wavePeriod">파주기</label><br>
+<input type="number" step="0.1" id="wavePeriod" name="wave_period">
+
+<br><br>
+
+<label for="waveDirection">파향</label><br>
+<input type="number" step="1" id="waveDirection" name="wave_direction">
+
+<br><br>
+
+<label for="windSpeed">풍속</label><br>
+<input type="number" step="0.1" id="windSpeed" name="wind_speed">
+
+<br><br>
+
+<label for="windDirection">풍향</label><br>
+<input type="text" id="windDirection" name="wind_direction" placeholder="예: 북동">
+
+<br><br>
+
+<label for="tideLevel">조위</label><br>
+<input type="text" id="tideLevel" name="tide_level">
+
+<br><br>
+
+<label for="tideTime">물때</label><br>
+<input type="text" id="tideTime" name="tide_time">
+
+<br><br>
+
+<label for="currentStrength">조류 세기</label><br>
+<input type="text" id="currentStrength" name="current_strength">
+
+<br><br>
+
+<label for="memo">메모</label><br>
+<textarea id="memo" name="memo"></textarea>
+
+<br><br>
+
+<button type="submit">저장</button>
+</form>
+</section>
+
+<section>
+<h3>저장된 정보</h3>
+{% if records %}
+<table border="1">
+<tr>
+<th>날짜</th>
+<th>국가</th>
+<th>지역</th>
+<th>수온</th>
+<th>파고</th>
+<th>파주기</th>
+<th>파향</th>
+<th>풍속</th>
+<th>풍향</th>
+<th>조위</th>
+<th>물때</th>
+<th>조류 세기</th>
+<th>메모</th>
+</tr>
+{% for record in records %}
+<tr>
+<td>{{ record.weather_date }}</td>
+<td>{{ record.region.country.name if record.region and record.region.country else '-' }}</td>
+<td>{{ record.region.name if record.region else '-' }}</td>
+<td>{{ record.water_temp if record.water_temp is not none else '-' }}</td>
+<td>{{ record.wave_height if record.wave_height is not none else '-' }}</td>
+<td>{{ record.wave_period if record.wave_period is not none else '-' }}</td>
+<td>{{ record.wave_direction if record.wave_direction is not none else '-' }}</td>
+<td>{{ record.wind_speed if record.wind_speed is not none else '-' }}</td>
+<td>{{ record.wind_direction if record.wind_direction else '-' }}</td>
+<td>{{ record.tide_level if record.tide_level else '-' }}</td>
+<td>{{ record.tide_time if record.tide_time else '-' }}</td>
+<td>{{ record.current_strength if record.current_strength else '-' }}</td>
+<td>{{ record.memo if record.memo else '-' }}</td>
+</tr>
+{% endfor %}
+</table>
+{% else %}
+<p>저장된 해양·기상정보가 없습니다.</p>
+{% endif %}
+</section>
+
+<script>
+const countrySelect = document.getElementById("countrySelect")
+const regionSelect = document.getElementById("regionSelect")
+
+countrySelect.addEventListener("change", async function(){
+ const countryId=this.value
+ regionSelect.innerHTML='<option value="">국가를 먼저 선택하세요</option>'
+ if(!countryId) return
+
+ const res=await fetch(`/regions?country_id=${countryId}`)
+ const regions=await res.json()
+ regionSelect.innerHTML=""
+ regions.forEach(region=>{
+  const option=document.createElement("option")
+  option.value=region.id
+  option.text=region.name
+  regionSelect.appendChild(option)
+ })
+})
+
+if(countrySelect.options.length > 1){
+ countrySelect.selectedIndex = 1
+ countrySelect.dispatchEvent(new Event("change"))
+}
+</script>
+
+{% endblock %}

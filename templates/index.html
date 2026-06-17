@@ -11,6 +11,38 @@
     height: 600px;
     width: 100%;
 }
+
+.point-popup{
+    min-width: 180px;
+}
+
+.point-popup__title{
+    margin: 0 0 8px;
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.point-popup__meta{
+    display: grid;
+    gap: 4px;
+    margin-bottom: 10px;
+    color: #333;
+}
+
+.point-popup__button{
+    width: 100%;
+    padding: 7px 10px;
+    border: none;
+    border-radius: 4px;
+    background: #0d6efd;
+    color: #fff;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.point-popup__button:hover{
+    background: #0b5ed7;
+}
 </style>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -23,6 +55,54 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 18
 }).addTo(map);
 
+function formatDiveDate(dateText){
+    if(!dateText){
+        return "기록 없음";
+    }
+
+    const date = new Date(dateText);
+    if(Number.isNaN(date.getTime())){
+        return dateText;
+    }
+
+    return date.toLocaleDateString("ko-KR", {
+        year: "numeric",
+        month: "long",
+        day: "numeric"
+    });
+}
+
+function createPointPopup(point){
+    const container = document.createElement("div");
+    container.className = "point-popup";
+
+    const title = document.createElement("h3");
+    title.className = "point-popup__title";
+    title.textContent = point.name || "이름 없는 포인트";
+
+    const meta = document.createElement("div");
+    meta.className = "point-popup__meta";
+
+    const logCount = document.createElement("div");
+    logCount.textContent = `로그 개수: ${point.log_count || 0}개`;
+
+    const latestDiveDate = document.createElement("div");
+    latestDiveDate.textContent = `최근 다이빙 날짜: ${formatDiveDate(point.latest_dive_date)}`;
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "point-popup__button";
+    button.textContent = "로그 보기";
+    button.addEventListener("click", () => {
+        window.location.href = `/point/${point.id}/logs`;
+    });
+
+    meta.append(logCount, latestDiveDate);
+    container.append(title, meta, button);
+
+    return container;
+}
+
 async function loadPoints(){
 
     const res = await fetch("/divepoints");
@@ -30,13 +110,10 @@ async function loadPoints(){
 
     points.forEach(p => {
 
-        if(p.latitude && p.longitude){
+        if(p.latitude !== null && p.longitude !== null){
 
             const marker = L.marker([p.latitude, p.longitude]).addTo(map);
-
-            marker.on("click", () => {
-                window.location.href = `/point/${p.id}/logs`;
-            });
+            marker.bindPopup(createPointPopup(p));
 
         }
 

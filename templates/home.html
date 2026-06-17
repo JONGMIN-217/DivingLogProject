@@ -30,9 +30,10 @@
 .summary-card,
 .menu-card,
 .recent-card {
-    border: 1px solid #ddd;
+    border: 1px solid #d9e2ec;
     border-radius: 8px;
     background: #fff;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
 }
 
 .summary-card {
@@ -51,15 +52,37 @@
 }
 
 .menu-card {
-    display: block;
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 14px;
+    align-items: center;
     padding: 18px;
     color: #222;
     text-decoration: none;
+    min-height: 96px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.menu-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    background: #eef5ff;
+    color: #2364d2;
+    font-size: 24px;
+    line-height: 1;
+}
+
+.menu-text {
+    min-width: 0;
 }
 
 .menu-card strong {
     display: block;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
     font-size: 18px;
 }
 
@@ -70,6 +93,8 @@
 
 .menu-card:hover {
     border-color: #2364d2;
+    box-shadow: 0 8px 20px rgba(35, 100, 210, 0.12);
+    transform: translateY(-1px);
 }
 
 .recent-card {
@@ -120,6 +145,29 @@
 }
 
 @media (max-width: 640px) {
+    body {
+        margin: 14px;
+    }
+
+    .home-header {
+        margin-bottom: 16px;
+    }
+
+    .home-header h1 {
+        font-size: 26px;
+    }
+
+    .summary-grid,
+    .menu-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .menu-card {
+        min-height: 88px;
+        padding: 16px;
+    }
+
     .recent-item {
         grid-template-columns: 1fr;
     }
@@ -153,23 +201,59 @@
 
     <section class="menu-grid">
         <a class="menu-card" href="/map">
-            <strong>지도 보기</strong>
-            <span>다이빙 포인트를 지도에서 확인합니다.</span>
+            <span class="menu-icon" aria-hidden="true">⌖</span>
+            <span class="menu-text">
+                <strong>지도 보기</strong>
+                <span>다이빙 포인트를 지도에서 확인합니다.</span>
+            </span>
         </a>
 
         <a class="menu-card" href="/log/add">
-            <strong>로그 추가</strong>
-            <span>새로운 다이빙 기록을 작성합니다.</span>
+            <span class="menu-icon" aria-hidden="true">＋</span>
+            <span class="menu-text">
+                <strong>로그 추가</strong>
+                <span>새로운 다이빙 기록을 작성합니다.</span>
+            </span>
         </a>
 
         <a class="menu-card" href="/logs">
-            <strong>전체 로그</strong>
-            <span>기록을 검색하고 필터로 찾아봅니다.</span>
+            <span class="menu-icon" aria-hidden="true">☰</span>
+            <span class="menu-text">
+                <strong>전체 로그</strong>
+                <span>기록을 검색하고 필터로 찾아봅니다.</span>
+            </span>
         </a>
 
         <a class="menu-card" href="/stats">
-            <strong>통계 보기</strong>
-            <span>누적 기록과 방문 포인트를 확인합니다.</span>
+            <span class="menu-icon" aria-hidden="true">▣</span>
+            <span class="menu-text">
+                <strong>통계 보기</strong>
+                <span>누적 기록과 방문 포인트를 확인합니다.</span>
+            </span>
+        </a>
+
+        <a class="menu-card" href="/friends">
+            <span class="menu-icon" aria-hidden="true">☺</span>
+            <span class="menu-text">
+                <strong>친구 관리</strong>
+                <span>친구를 찾고 요청을 관리합니다.</span>
+            </span>
+        </a>
+
+        <a class="menu-card" href="/trips">
+            <span class="menu-icon" aria-hidden="true">✈</span>
+            <span class="menu-text">
+                <strong>투어</strong>
+                <span>다이빙 투어와 참가자를 관리합니다.</span>
+            </span>
+        </a>
+
+        <a class="menu-card" href="/import">
+            <span class="menu-icon" aria-hidden="true">⇪</span>
+            <span class="menu-text">
+                <strong>로그 가져오기</strong>
+                <span>외부 파일의 로그를 가져옵니다.</span>
+            </span>
         </a>
     </section>
 

@@ -79,6 +79,28 @@
     font: inherit;
     cursor: pointer;
 }
+
+.marine-weather-panel {
+    border: 1px solid #d7e2f2;
+    border-radius: 8px;
+    background: #f8fbff;
+    padding: 14px;
+    margin-bottom: 16px;
+}
+
+.marine-weather-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px;
+}
+
+.marine-weather-item {
+    color: #333;
+}
+
+.marine-weather-empty {
+    color: #777;
+}
 </style>
 {% endblock %}
 
@@ -86,7 +108,7 @@
 
 <div class="log-add-page">
 <div class="log-add-header">
-<h2>다이빙 로그 #{{ next_dive_number }}</h2>
+<h2>다이빙 로그 Dive #{{ next_dive_number }}</h2>
 <p>위치부터 기타 정보까지 순서대로 기록하세요.</p>
 </div>
 
@@ -96,9 +118,16 @@
 <h3>위치 정보</h3>
 <div class="field-grid">
 <div class="field">
+<label for="countrySelect">국가</label>
+<select id="countrySelect">
+<option value="">선택</option>
+</select>
+</div>
+
+<div class="field">
 <label for="regionSelect">지역</label>
 <select id="regionSelect">
-<option value="">선택</option>
+<option value="">국가를 먼저 선택하세요</option>
 </select>
 </div>
 
@@ -140,6 +169,13 @@
 <label for="diveTime">다이브타임</label>
 <input type="number" name="dive_time" id="diveTime">
 </div>
+</div>
+</section>
+
+<section class="marine-weather-panel">
+<h3>해양·기상정보</h3>
+<div id="marineWeatherContent" class="marine-weather-empty">
+날짜와 지역 또는 포인트를 선택하면 저장된 해양·기상정보가 표시됩니다.
 </div>
 </section>
 
@@ -198,6 +234,16 @@
 <h3>기타 정보</h3>
 <div class="field-grid">
 <div class="field">
+<label for="buddyUser">친구 선택</label>
+<select name="buddy_user_id" id="buddyUser">
+<option value="">선택 안 함</option>
+{% for friend in friends %}
+<option value="{{ friend.id }}">{{ friend.username }}</option>
+{% endfor %}
+</select>
+</div>
+
+<div class="field">
 <label for="buddy">버디</label>
 <input type="text" name="buddy" id="buddy" placeholder="예: 김다이버, 다이빙클럽 팀">
 </div>
@@ -225,9 +271,39 @@
 
 <script>
 
-async function loadRegions(){
+async function loadCountries(){
 
- const res = await fetch("/regions")
+ const res = await fetch("/countries")
+ const countries = await res.json()
+
+ const select = document.getElementById("countrySelect")
+ select.innerHTML = ""
+
+ countries.forEach(c=>{
+  const opt=document.createElement("option")
+  opt.value=c.id
+  opt.text=c.name
+  select.appendChild(opt)
+ })
+
+ if(countries.length>0){
+  select.value = countries[0].id
+  select.dispatchEvent(new Event("change"))
+ }
+
+}
+
+document.getElementById("countrySelect").addEventListener("change", async function(){
+
+ const countryId=this.value
+ const areaSelect=document.getElementById("areaSelect")
+ const pointSelect=document.getElementById("pointSelect")
+ areaSelect.innerHTML='<option value="">지역을 먼저 선택하세요</option>'
+ pointSelect.innerHTML='<option value="">세부지역을 먼저 선택하세요</option>'
+
+ if(!countryId) return
+
+ const res = await fetch(`/regions?country_id=${countryId}`)
  const regions = await res.json()
 
  const select = document.getElementById("regionSelect")
@@ -240,13 +316,14 @@ async function loadRegions(){
   select.appendChild(opt)
  })
 
- // 첫 지역 자동 선택
  if(regions.length>0){
   select.value = regions[0].id
   select.dispatchEvent(new Event("change"))
+ }else{
+  select.innerHTML='<option value="">국가에 등록된 지역이 없습니다</option>'
  }
 
-}
+})
 
 document.getElementById("regionSelect").addEventListener("change", async function(){
 
@@ -289,9 +366,93 @@ document.getElementById("areaSelect").addEventListener("change", async function(
   pointSelect.appendChild(opt)
  })
 
+ updateMarineWeather()
+
 })
 
-loadRegions()
+loadCountries()
+
+document.getElementById("diveDate").addEventListener("change", updateMarineWeather)
+document.getElementById("startTime").addEventListener("change", updateMarineWeather)
+document.getElementById("regionSelect").addEventListener("change", updateMarineWeather)
+document.getElementById("pointSelect").addEventListener("change", updateMarineWeather)
+
+function formatWeatherValue(value, suffix){
+ if(value === null || value === undefined || value === ""){
+  return "-"
+ }
+ return suffix ? `${value} ${suffix}` : value
+}
+
+function renderMarineWeather(weather){
+ const container=document.getElementById("marineWeatherContent")
+
+ if(!weather){
+  container.className="marine-weather-empty"
+  container.textContent="저장된 해양·기상정보가 없습니다."
+  return
+ }
+
+ container.className="marine-weather-grid"
+ container.innerHTML=`
+  <div class="marine-weather-item">지역: ${weather.region || "-"}</div>
+  <div class="marine-weather-item">수온: ${formatWeatherValue(weather.water_temp, "°C")}</div>
+  <div class="marine-weather-item">파고: ${formatWeatherValue(weather.wave_height, "m")}</div>
+  <div class="marine-weather-item">파주기: ${formatWeatherValue(weather.wave_period, "초")}</div>
+  <div class="marine-weather-item">파향: ${formatWeatherValue(weather.wave_direction, "°")}</div>
+  <div class="marine-weather-item">풍속: ${formatWeatherValue(weather.wind_speed, "m/s")}</div>
+  <div class="marine-weather-item">풍향: ${formatWeatherValue(weather.wind_direction)}</div>
+  <div class="marine-weather-item">조위: ${formatWeatherValue(weather.tide_level)}</div>
+  <div class="marine-weather-item">물때: ${formatWeatherValue(weather.tide_time)}</div>
+  <div class="marine-weather-item">조류 세기: ${formatWeatherValue(weather.current_strength)}</div>
+  <div class="marine-weather-item">메모: ${formatWeatherValue(weather.memo)}</div>
+ `
+
+ const waterTempInput=document.getElementById("waterTemp")
+ if(weather.water_temp !== null && weather.water_temp !== undefined && !waterTempInput.value){
+  waterTempInput.value=weather.water_temp
+ }
+}
+
+async function updateMarineWeather(){
+ const date=document.getElementById("diveDate").value
+ const regionId=document.getElementById("regionSelect").value
+ const pointId=document.getElementById("pointSelect").value
+ const container=document.getElementById("marineWeatherContent")
+
+ if(!date || (!regionId && !pointId)){
+  container.className="marine-weather-empty"
+  container.textContent="날짜와 지역 또는 포인트를 선택하면 저장된 해양·기상정보가 표시됩니다."
+  return
+ }
+
+ const params=new URLSearchParams({weather_date: date})
+ if(pointId){
+  params.set("point_id", pointId)
+ }else{
+ params.set("region_id", regionId)
+ }
+ const targetTime=document.getElementById("startTime").value
+ if(targetTime){
+  params.set("target_time", targetTime)
+ }
+
+ try{
+  const res=await fetch(`/api/marine-weather?${params.toString()}`)
+  const data=await res.json()
+  renderMarineWeather(data.weather)
+ }catch(error){
+  container.className="marine-weather-empty"
+  container.textContent="자동 조회에 실패했습니다. 환경 정보는 수동으로 입력하세요."
+ }
+}
+
+document.getElementById("buddyUser").addEventListener("change", function(){
+ const buddyInput=document.getElementById("buddy")
+ if(!buddyInput.value && this.value){
+  buddyInput.value=this.options[this.selectedIndex].text
+ }
+})
 
 function calculateDiveTime(){
 

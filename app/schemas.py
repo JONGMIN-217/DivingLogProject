@@ -12,4 +12,6 @@ class DiveLogCreate(BaseModel):
     dive_time: int
     water_temp: float
     visibility: float
+    buddy: str | None = None
+    buddy_user_id: int | None = None
     note: str | None = None

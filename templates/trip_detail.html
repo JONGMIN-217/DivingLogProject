@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>{{ trip.name }}</h2>
+
+{% if error %}
+<div style="color:red; font-weight:bold;">{{ error }}</div>
+{% endif %}
+
+{% if message %}
+<div style="color:green; font-weight:bold;">{{ message }}</div>
+{% endif %}
+
+<p>기간: {{ trip.start_date }} ~ {{ trip.end_date }}</p>
+<p>지역: {{ trip.region }}</p>
+
+<section>
+<h3>참가자</h3>
+{% if trip.participants %}
+<ul>
+{% for participant in trip.participants %}
+<li>{{ participant.user.username }}</li>
+{% endfor %}
+</ul>
+{% else %}
+<p>참가자가 없습니다.</p>
+{% endif %}
+</section>
+
+<section>
+<h3>사진 업로드</h3>
+<form action="/trips/{{ trip.id }}/photos" method="post" enctype="multipart/form-data">
+<label for="photo">사진</label><br>
+<input type="file" id="photo" name="photo" accept="image/*" required>
+
+<br><br>
+
+<label for="caption">설명</label><br>
+<input type="text" id="caption" name="caption" placeholder="사진 설명을 입력하세요">
+
+<br><br>
+
+<button type="submit">사진 올리기</button>
+</form>
+</section>
+
+<section>
+<h3>공유 사진</h3>
+{% if trip.photos %}
+<div>
+{% for photo in trip.photos %}
+<figure style="display:inline-block; margin:12px;">
+    <img src="/{{ photo.image_path }}" alt="투어 공유 사진" style="max-width:220px; max-height:180px;">
+    <figcaption>
+        {{ photo.caption if photo.caption else '설명 없음' }}<br>
+        올린 사람: {{ photo.uploader.username }}
+    </figcaption>
+</figure>
+{% endfor %}
+</div>
+{% else %}
+<p>아직 공유된 사진이 없습니다.</p>
+{% endif %}
+</section>
+
+<br>
+<a href="/trips"><button>투어 목록</button></a>
+
+{% endblock %}

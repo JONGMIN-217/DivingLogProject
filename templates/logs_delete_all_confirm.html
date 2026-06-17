@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+.delete-confirm {
+    max-width: 720px;
+    margin: 32px auto;
+    padding: 20px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #fff;
+}
+.warning-text {
+    color: #b42318;
+    font-weight: 700;
+}
+.confirm-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 20px;
+}
+.btn {
+    display: inline-block;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    background: #fff;
+    color: #222;
+    font: inherit;
+    text-decoration: none;
+    cursor: pointer;
+}
+.btn-danger {
+    border-color: #c9342c;
+    background: #c9342c;
+    color: #fff;
+}
+</style>
+
+<div class="delete-confirm">
+    <h2>전체 로그 삭제 확인</h2>
+    <p class="warning-text">정말 모든 로그를 삭제하시겠습니까?</p>
+    <p class="warning-text">이 작업은 되돌릴 수 없습니다.</p>
+    {% if is_admin %}
+    <p>관리자 권한으로 삭제 가능한 전체 사용자 로그 {{ delete_count }}개가 삭제됩니다.</p>
+    {% else %}
+    <p>내 로그 {{ delete_count }}개가 삭제됩니다.</p>
+    {% endif %}
+
+    <div class="confirm-actions">
+        <form action="/logs/delete-all" method="post">
+            <button class="btn btn-danger" type="submit">전체 로그 삭제</button>
+        </form>
+        <a class="btn" href="/logs">취소</a>
+    </div>
+</div>
+{% endblock %}

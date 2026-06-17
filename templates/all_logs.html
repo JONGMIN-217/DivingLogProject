@@ -22,7 +22,7 @@
 {% for log in logs %}
 
 <tr>
-<td>#{{ log.id }}</td>
+<td>Dive #{{ log.dive_number or log.id }}</td>
 <td>{{ log.dive_date }}</td>
 <td>{{ log.dive_point.name }}</td>
 <td>{{ log.max_depth }} m</td>
@@ -36,10 +36,14 @@
 </td>
 <td>{{ log.buddy }}</td>
 <td>
+{% if log.user_id == request.session.get("user_id") %}
 <a href="/log/{{ log.id }}/edit">수정</a>
 <form action="/log/{{ log.id }}/delete" method="post" style="display:inline;">
 <button type="submit">삭제</button>
 </form>
+{% else %}
+-
+{% endif %}
 </td>
 </tr>
 

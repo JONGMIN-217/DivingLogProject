@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>로그인</h2>
+
+{% if error %}
+<div style="color:red; font-weight:bold;">{{ error }}</div>
+{% endif %}
+
+<form action="/login" method="post">
+<input type="hidden" name="next_url" value="{{ next_url }}">
+
+<label for="username">아이디</label><br>
+<input type="text" id="username" name="username" value="{{ username }}" required>
+
+<br><br>
+
+<label for="password">비밀번호</label><br>
+<input type="password" id="password" name="password" required>
+
+<br><br>
+
+<button type="submit">로그인</button>
+</form>
+
+<br>
+<a href="/register"><button>회원가입하기</button></a>
+
+{% endblock %}

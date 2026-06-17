@@ -8,11 +8,10 @@ router = APIRouter()
 @router.get("/areas")
 def get_areas(region_id: int | None = None):
     db = SessionLocal()
+    try:
+        if region_id:
+            return db.query(Area).filter(Area.region_id == region_id).all()
 
-    if region_id:
-        areas = db.query(Area).filter(Area.region_id == region_id).all()
-    else:
-        areas = db.query(Area).all()
-
-    db.close()
-    return areas
+        return db.query(Area).all()
+    finally:
+        db.close()

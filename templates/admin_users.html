@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>사용자 관리</h2>
+
+{% if error %}
+<div style="color:red; font-weight:bold;">{{ error }}</div>
+{% endif %}
+
+{% if message %}
+<div style="color:green; font-weight:bold;">{{ message }}</div>
+{% endif %}
+
+<table border="1">
+<tr>
+<th>번호</th>
+<th>아이디</th>
+<th>권한</th>
+<th>로그 개수</th>
+<th>관리</th>
+</tr>
+
+{% for user, log_count in users %}
+<tr>
+<td>{{ user.id }}</td>
+<td>{{ user.username }}</td>
+<td>{% if user.is_admin %}관리자{% else %}일반 사용자{% endif %}</td>
+<td>{{ log_count }}개</td>
+<td>
+<form action="/admin/users/{{ user.id }}/toggle-admin" method="post" style="display:inline;">
+    <button type="submit">
+        {% if user.is_admin %}관리자 해제{% else %}관리자 지정{% endif %}
+    </button>
+</form>
+
+<form action="/admin/users/{{ user.id }}/delete" method="post" style="display:inline;">
+    <button type="submit">삭제</button>
+</form>
+</td>
+</tr>
+{% endfor %}
+</table>
+
+<p>사용자를 삭제하면 해당 사용자의 로그는 기존 개인용 데이터로 전환됩니다.</p>
+
+{% endblock %}

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block head %}
+<style>
+.import-page {
+    max-width: 760px;
+}
+
+.import-card {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #fff;
+    padding: 18px;
+}
+
+.import-card h2 {
+    margin-top: 0;
+}
+
+.import-help {
+    color: #666;
+    line-height: 1.5;
+}
+
+.import-field {
+    margin: 18px 0;
+}
+
+.import-field label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: bold;
+}
+
+.import-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.error-message {
+    margin-bottom: 14px;
+    color: red;
+    font-weight: bold;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="import-page">
+    <div class="import-card">
+        <h2>다이빙 컴퓨터 로그 가져오기</h2>
+
+        {% if error %}
+        <div class="error-message">{{ error }}</div>
+        {% endif %}
+
+        <p class="import-help">
+            CSV, XML, UDDF, 다이빙 컴퓨터 DB 파일을 업로드하면 바로 저장하지 않고 먼저 미리보기 화면에서 내용을 확인합니다.
+            최대 {{ max_import_file_size_mb or 200 }}MB까지 업로드할 수 있습니다.
+        </p>
+
+        <form action="/import/preview" method="post" enctype="multipart/form-data">
+            <div class="import-field">
+                <label for="import_file">가져올 파일</label>
+                <input id="import_file" type="file" name="import_file" accept=".csv,.xml,.uddf,.db,text/csv,application/xml,text/xml,application/octet-stream" required>
+            </div>
+
+            <div class="import-actions">
+                <button type="submit">미리보기</button>
+                <a href="/"><button type="button">취소</button></a>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}

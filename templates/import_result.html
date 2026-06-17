@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+.import-result {
+    max-width: 1000px;
+    margin: 32px auto;
+    padding: 0 16px;
+}
+.result-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin: 18px 0;
+}
+.result-box {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 14px;
+    background: #fff;
+}
+.result-box strong {
+    display: block;
+    font-size: 24px;
+    margin-top: 6px;
+}
+.failure-details {
+    margin-top: 24px;
+}
+.failure-details summary {
+    cursor: pointer;
+    font-weight: 700;
+    margin-bottom: 12px;
+}
+.failure-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.failure-table th,
+.failure-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+    vertical-align: top;
+}
+.failure-table th {
+    background: #f6f6f6;
+}
+.result-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 24px;
+}
+</style>
+
+<div class="import-result">
+    <h2>가져오기 결과</h2>
+    <p>다이브 번호 재정렬까지 완료되었습니다.</p>
+
+    <div class="result-summary">
+        <div class="result-box">전체 파싱 로그<strong>{{ result.total_count }}</strong></div>
+        <div class="result-box">선택된 로그<strong>{{ result.selected_count }}</strong></div>
+        <div class="result-box">저장된 로그<strong>{{ result.saved_count }}</strong></div>
+        <div class="result-box">중복 제외 로그<strong>{{ result.duplicate_count }}</strong></div>
+        <div class="result-box">실패 로그<strong>{{ result.failed_count }}</strong></div>
+    </div>
+
+    {% if result.failures %}
+    <details class="failure-details" open>
+        <summary>실패 상세 목록 보기</summary>
+        <table class="failure-table">
+            <tr>
+                <th>실패 로그 번호</th>
+                <th>날짜</th>
+                <th>입수시각</th>
+                <th>포인트</th>
+                <th>실패 원인</th>
+            </tr>
+            {% for failure in result.failures %}
+            <tr>
+                <td>{{ failure.log_number }}</td>
+                <td>{{ failure.date }}</td>
+                <td>{{ failure.entry_time }}</td>
+                <td>{{ failure.point }}</td>
+                <td>{{ failure.reason }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </details>
+    {% endif %}
+
+    <div class="result-actions">
+        <a href="/import"><button type="button">다른 파일 가져오기</button></a>
+        <a href="/logs"><button type="button">전체 로그</button></a>
+    </div>
+</div>
+{% endblock %}

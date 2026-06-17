@@ -1,14 +1,19 @@
 from datetime import date
 from app.database import SessionLocal
-from app.models import Region, Area, DivePoint, DiveLog
+from app.models import Country, Region, Area, DivePoint, DiveLog
 
 
 def seed():
     db = SessionLocal()
 
+    # Country
+    korea = Country(name="대한민국")
+    db.add(korea)
+    db.commit()
+
     # Region
-    jeju = Region(name="제주 서귀포")
-    east = Region(name="동해 강릉")
+    jeju = Region(name="제주 서귀포", country=korea)
+    east = Region(name="동해 강릉", country=korea)
 
     db.add_all([jeju, east])
     db.commit()

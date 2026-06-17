@@ -1,0 +1,445 @@
+{% extends "base.html" %}
+
+{% block head %}
+<style>
+.preview-page {
+    max-width: 1120px;
+}
+
+.preview-summary {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #fff;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.preview-summary p {
+    margin: 6px 0;
+}
+
+.message-list {
+    color: #9a6700;
+}
+
+.preview-table-wrap {
+    overflow-x: auto;
+}
+
+.preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+}
+
+.preview-table th,
+.preview-table td {
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.preview-table th {
+    background: #f6f7f9;
+}
+
+.empty-preview {
+    color: #777;
+}
+
+.preview-actions {
+    margin-top: 16px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.import-actionbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    margin: 16px 0;
+    padding: 12px;
+    border: 1px solid #cfd8e3;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+}
+
+.actionbar-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    color: #444;
+}
+
+.actionbar-stat {
+    padding: 4px 8px;
+    border: 1px solid #e1e7ef;
+    border-radius: 6px;
+    background: #f8fafc;
+    white-space: nowrap;
+}
+
+.actionbar-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.actionbar-buttons button,
+.actionbar-buttons a button {
+    white-space: nowrap;
+}
+
+.primary-save {
+    border: 1px solid #2364d2;
+    background: #2364d2;
+    color: #fff;
+}
+
+.danger-soft {
+    border: 1px solid #c9342c;
+    color: #c9342c;
+    background: #fff;
+}
+
+.pagination-info {
+    margin: 12px 0;
+    color: #555;
+}
+
+.point-select {
+    min-width: 260px;
+    padding: 6px;
+}
+
+.candidate-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(130px, 1fr));
+    gap: 6px;
+    min-width: 360px;
+}
+
+.candidate-grid label {
+    display: grid;
+    gap: 3px;
+    color: #555;
+    font-size: 12px;
+}
+
+.candidate-grid input {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 6px;
+    border: 1px solid #bbb;
+    border-radius: 5px;
+}
+
+.suggestion-text {
+    color: #2364d2;
+    font-weight: 700;
+}
+
+.candidate-text {
+    color: #9a6700;
+    font-weight: 700;
+}
+
+.save-help {
+    color: #666;
+    line-height: 1.5;
+}
+
+.duplicate-row {
+    background: #fff7ed;
+}
+
+.duplicate-badge {
+    display: inline-block;
+    margin-top: 4px;
+    color: #b45309;
+    font-weight: 700;
+}
+
+.db-table-card {
+    border: 1px solid #d9e2ec;
+    border-radius: 8px;
+    background: #fff;
+    padding: 14px;
+    margin-bottom: 14px;
+}
+
+.db-table-card h3 {
+    margin: 0 0 8px;
+}
+
+.db-meta {
+    color: #666;
+    margin-bottom: 10px;
+}
+
+@media (max-width: 760px) {
+    .import-actionbar {
+        grid-template-columns: 1fr;
+        top: 0;
+    }
+
+    .actionbar-buttons {
+        justify-content: flex-start;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 2px;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="preview-page">
+    <h2>가져오기 미리보기</h2>
+
+    <div class="preview-summary">
+        <p><b>파일명:</b> {{ preview.original_filename }}</p>
+        <p><b>저장 위치:</b> {{ preview.source_path }}</p>
+        <p><b>해석 방식:</b> {{ preview.parser_name }}</p>
+        {% if pagination %}
+        <p><b>전체 파싱 로그 수:</b> {{ pagination.total_count }}개</p>
+        <p><b>선택된 로그 수:</b> {{ pagination.selected_count }}개</p>
+        <p><b>현재 페이지:</b> {{ pagination.page }} / {{ pagination.total_pages }}쪽, {{ pagination.start_number }}-{{ pagination.end_number }}번째 표시</p>
+        {% else %}
+        <p><b>미리보기 항목 수:</b> {{ preview.rows|length }}</p>
+        {% endif %}
+        {% if duplicate_summary %}
+        <p><b>전체 Import 대상 로그 수:</b> {{ duplicate_summary.total_count }}개</p>
+        <p><b>기존 로그와 중복 가능 로그 수:</b> {{ duplicate_summary.duplicate_count }}개</p>
+        <p><b>기본 저장 가능 로그 수:</b> {{ duplicate_summary.saveable_count }}개</p>
+        {% endif %}
+
+        {% if preview.messages %}
+        <div class="message-list">
+            {% for message in preview.messages %}
+            <p>{{ message }}</p>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    {% if preview.db_tables %}
+    <p class="save-help">
+        이 DB 파일은 자동 저장하지 않습니다. 테이블 목록과 샘플 데이터를 확인한 뒤, 어떤 테이블이 로그 데이터인지 판단할 수 있습니다.
+    </p>
+
+    {% for table in preview.db_tables %}
+    <section class="db-table-card">
+        <h3>{{ table.name }}</h3>
+        <div class="db-meta">행 수: {{ table.row_count }}개</div>
+        <div class="db-meta">컬럼: {{ table.columns|join(", ") }}</div>
+
+        {% if table.sample_rows %}
+        <div class="preview-table-wrap">
+            <table class="preview-table">
+                <tr>
+                    {% for column in table.columns %}
+                    <th>{{ column }}</th>
+                    {% endfor %}
+                </tr>
+                {% for row in table.sample_rows %}
+                <tr>
+                    {% for column in table.columns %}
+                    <td>{{ row.get(column, "") }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+        {% else %}
+        <p class="empty-preview">샘플로 표시할 데이터가 없습니다.</p>
+        {% endif %}
+    </section>
+    {% endfor %}
+
+    <div class="preview-actions">
+        <a href="/import"><button type="button">다른 파일 가져오기</button></a>
+        <a href="/logs"><button type="button">전체 로그</button></a>
+    </div>
+    {% elif preview.columns and preview.dives %}
+    <form action="/import/preview/{{ batch_id }}/action" method="post">
+        <input type="hidden" name="page" value="{{ pagination.page }}">
+
+        <div class="import-actionbar">
+            <div class="actionbar-stats">
+                <span class="actionbar-stat">선택 {{ pagination.selected_count }}개</span>
+                <span class="actionbar-stat">전체 {{ pagination.total_count }}개</span>
+                <span class="actionbar-stat">중복 가능 {{ duplicate_summary.duplicate_count if duplicate_summary else 0 }}개</span>
+            </div>
+            <div class="actionbar-buttons">
+                <button class="primary-save" type="submit" name="action" value="confirm">선택 로그 저장</button>
+                <button type="submit" name="action" value="confirm_without_duplicates">중복 제외하고 저장</button>
+                <button type="submit" name="action" value="select_all">전체 선택</button>
+                <button type="submit" name="action" value="select_page">현재 페이지 선택</button>
+                <button type="submit" name="action" value="clear_all">전체 해제</button>
+                <a href="/import"><button class="danger-soft" type="button">가져오기 취소</button></a>
+            </div>
+        </div>
+
+        <p class="save-help">
+            GPS 정보가 있는 항목은 200m 이내의 가장 가까운 포인트만 자동 추천합니다. 200m 밖이면 새 포인트 후보로 표시되며 저장 전 정보를 수정할 수 있습니다.
+            GPS 정보가 없는 항목은 저장 전에 사용자가 포인트를 직접 선택해야 합니다.
+            기존 로그와 중복 가능성이 높은 항목은 기본적으로 저장 대상에서 제외됩니다. 필요한 경우 체크박스를 다시 선택해 중복 포함 저장할 수 있습니다.
+        </p>
+
+        <p class="pagination-info">
+            전체 {{ pagination.total_count }}개 중 {{ pagination.start_number }}-{{ pagination.end_number }}번째를 표시합니다.
+            저장 버튼을 누르면 현재 페이지가 아니라 전체 선택된 항목 기준으로 저장됩니다.
+        </p>
+
+        {% if duplicate_summary and duplicate_summary.duplicate_rows %}
+        <div class="preview-summary">
+            <h3>중복 경고</h3>
+            <p>아래 항목은 기존 로그와 중복 가능성이 높아 기본 저장 대상에서 제외됩니다.</p>
+            <div class="preview-table-wrap">
+                <table class="preview-table">
+                    <tr>
+                        <th>Import 로그</th>
+                        <th>기존 로그</th>
+                        <th>포인트</th>
+                        <th>중복 판단 이유</th>
+                    </tr>
+                    {% for duplicate in duplicate_summary.duplicate_rows %}
+                    <tr>
+                        <td>{{ duplicate.dive_date }} {{ duplicate.entry_time }}</td>
+                        <td>Dive #{{ duplicate.existing_dive_number or '-' }}<br>{{ duplicate.existing_date }} {{ duplicate.existing_entry_time }}</td>
+                        <td>{{ duplicate.point_name }}</td>
+                        <td>{{ duplicate.reason }}</td>
+                    </tr>
+                    {% endfor %}
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+    <div class="preview-table-wrap">
+        <table class="preview-table">
+            <tr>
+                <th>선택</th>
+                {% for column in preview.columns %}
+                <th>{{ column }}</th>
+                {% endfor %}
+                <th>자동 추천</th>
+                <th>저장할 포인트</th>
+                <th>새 포인트 후보</th>
+            </tr>
+
+            {% for dive in preview.dives %}
+            {% set row_index = dive.batch_index %}
+            {% set row = dive.preview_row() %}
+            <tr class="{% if duplicate_summary and row_index in duplicate_summary.duplicate_indexes %}duplicate-row{% endif %}">
+                <td>
+                    <input type="hidden" name="row_indexes" value="{{ row_index }}">
+                    <input type="checkbox" name="selected_import_indexes" value="{{ row_index }}" {% if dive.is_selected %}checked{% endif %}>
+                </td>
+                {% for column in preview.columns %}
+                {% if column == "날짜" %}
+                <td><input type="date" name="dive_dates" value="{{ row.get(column, '') }}"></td>
+                {% elif column == "입수시각" %}
+                <td><input type="time" name="entry_times" value="{{ row.get(column, '') }}"></td>
+                {% elif column == "출수시각" %}
+                <td><input type="time" name="exit_times" value="{{ row.get(column, '') }}"></td>
+                {% elif column == "최대 수심" %}
+                <td><input type="number" step="0.1" name="max_depths" value="{{ row.get(column, '') }}"></td>
+                {% elif column == "평균 수심" %}
+                <td><input type="number" step="0.1" name="avg_depths" value="{{ row.get(column, '') }}"></td>
+                {% elif column == "다이브타임" %}
+                <td><input type="number" name="dive_times" value="{{ row.get(column, '') }}"></td>
+                {% elif column == "수온" %}
+                <td><input type="number" step="0.1" name="water_temps" value="{{ row.get(column, '') }}"></td>
+                {% else %}
+                <td>{{ row.get(column, "") }}</td>
+                {% endif %}
+                {% endfor %}
+                <td>
+                    {% if dive.suggested_point %}
+                    <span class="suggestion-text">{{ dive.suggested_point.point_name }}</span>
+                    <br>
+                    {{ (dive.suggested_point.distance_km * 1000)|round|int }} m
+                    {% if duplicate_summary and row_index in duplicate_summary.duplicate_indexes %}
+                    <br><span class="duplicate-badge">중복 제외 예정</span>
+                    {% endif %}
+                    {% elif dive.is_new_point_candidate %}
+                    <span class="candidate-text">새 포인트 후보</span>
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+                <td>
+                    <select class="point-select" name="selected_point_ids">
+                        <option value="">선택 안 함</option>
+                        {% for point in points %}
+                        {% set area = point.area %}
+                        {% set region = area.region if area else none %}
+                        {% set country = region.country if region else none %}
+                        <option value="{{ point.id }}" {% if dive.selected_point_id and dive.selected_point_id == point.id %}selected{% endif %}>
+                            {{ country.name ~ " / " if country else "" }}{{ region.name ~ " / " if region else "" }}{{ area.name ~ " / " if area else "" }}{{ point.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </td>
+                <td>
+                    {% if dive.is_new_point_candidate %}
+                    <div class="candidate-grid">
+                        <label>국가
+                            <input name="candidate_country_names" value="{{ dive.candidate_country }}">
+                        </label>
+                        <label>지역
+                            <input name="candidate_region_names" value="{{ dive.candidate_region }}">
+                        </label>
+                        <label>세부지역
+                            <input name="candidate_area_names" value="{{ dive.candidate_area }}">
+                        </label>
+                        <label>포인트명
+                            <input name="candidate_point_names" value="{{ dive.candidate_point_name }}">
+                        </label>
+                    </div>
+                    {% else %}
+                    <input type="hidden" name="candidate_country_names" value="">
+                    <input type="hidden" name="candidate_region_names" value="">
+                    <input type="hidden" name="candidate_area_names" value="">
+                    <input type="hidden" name="candidate_point_names" value="">
+                    -
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+        <div class="preview-actions">
+            {% if pagination.has_previous %}
+            <button type="submit" name="action" value="page:{{ pagination.previous_page }}">이전 페이지</button>
+            {% endif %}
+            {% if pagination.has_next %}
+            <button type="submit" name="action" value="page:{{ pagination.next_page }}">다음 페이지</button>
+            {% endif %}
+            <a href="/import"><button type="button">다른 파일 가져오기</button></a>
+            <a href="/import"><button type="button">가져오기 취소</button></a>
+            <a href="/logs"><button type="button">전체 로그</button></a>
+        </div>
+    </form>
+    {% else %}
+    <p class="empty-preview">미리보기로 표시할 데이터가 없습니다.</p>
+    <div class="preview-actions">
+        <a href="/import"><button type="button">다른 파일 가져오기</button></a>
+        <a href="/logs"><button type="button">전체 로그</button></a>
+    </div>
+    {% endif %}
+</div>
+
+{% endblock %}

@@ -36,6 +36,23 @@ body{
     <a href="/map"><button>지도</button></a>
     <a href="/logs"><button>로그</button></a>
     <a href="/log/add"><button>로그 추가</button></a>
+    <a href="/friends"><button>친구</button></a>
+    <a href="/trips"><button>투어</button></a>
+    <a href="/marine-weather"><button>해양·기상</button></a>
+    <a href="/import"><button>가져오기</button></a>
+    {% if request.session.get("user_id") %}
+    {% if request.session.get("is_admin") %}
+    <a href="/admin/users"><button>사용자 관리</button></a>
+    <a href="/admin/divepoints"><button>포인트 관리</button></a>
+    {% endif %}
+    <span>{{ request.session.get("username") }}님</span>
+    <form action="/logout" method="post" style="display:inline;">
+        <button type="submit">로그아웃</button>
+    </form>
+    {% else %}
+    <a href="/login"><button>로그인</button></a>
+    <a href="/register"><button>회원가입</button></a>
+    {% endif %}
 </div>
 
 <!-- ✅ 각 페이지 내용 들어가는 자리 -->

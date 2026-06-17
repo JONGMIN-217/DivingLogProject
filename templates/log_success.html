@@ -14,7 +14,7 @@
 <h2>다이빙 로그 저장 완료</h2>
 
 <p>
-<b>다이브 #{{ log.id }}</b><br>
+<b>Dive #{{ log.dive_number or log.id }}</b><br>
 날짜: {{ log.dive_date }}<br>
 포인트: {{ log.dive_point.name }}<br>
 최대 수심: {{ log.max_depth }} m<br>

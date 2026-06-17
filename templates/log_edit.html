@@ -2,7 +2,7 @@
 
 {% block content %}
 
-<h2>다이빙 로그 수정 #{{ log.id }}</h2>
+<h2>다이빙 로그 수정 Dive #{{ log.dive_number or log.id }}</h2>
 
 <form action="/log/{{ log.id }}/edit" method="post">
 

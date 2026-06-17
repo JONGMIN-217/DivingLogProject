@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>친구</h2>
+
+{% if error %}
+<div style="color:red; font-weight:bold;">{{ error }}</div>
+{% endif %}
+
+{% if message %}
+<div style="color:green; font-weight:bold;">{{ message }}</div>
+{% endif %}
+
+<section>
+<h3>사용자 검색</h3>
+<form action="/friends" method="get">
+<label for="q">아이디 검색</label><br>
+<input type="search" id="q" name="q" value="{{ query }}" placeholder="친구 아이디를 입력하세요">
+<button type="submit">검색</button>
+</form>
+
+{% if query %}
+<h4>검색 결과</h4>
+{% if search_results %}
+<table border="1">
+<tr>
+<th>아이디</th>
+<th>상태</th>
+<th>관리</th>
+</tr>
+{% for result in search_results %}
+<tr>
+<td>{{ result.user.username }}</td>
+<td>
+{% if not result.friendship %}
+친구 아님
+{% elif result.friendship.status == "pending" %}
+요청 대기
+{% elif result.friendship.status == "accepted" %}
+친구
+{% else %}
+거절됨
+{% endif %}
+</td>
+<td>
+{% if not result.friendship or result.friendship.status == "rejected" %}
+<form action="/friends/request/{{ result.user.id }}" method="post">
+<button type="submit">친구 요청</button>
+</form>
+{% else %}
+-
+{% endif %}
+</td>
+</tr>
+{% endfor %}
+</table>
+{% else %}
+<p>검색 결과가 없습니다.</p>
+{% endif %}
+{% endif %}
+</section>
+
+<section>
+<h3>받은 친구 요청</h3>
+{% if received_requests %}
+<table border="1">
+<tr>
+<th>아이디</th>
+<th>관리</th>
+</tr>
+{% for friendship in received_requests %}
+<tr>
+<td>{{ friendship.requester.username }}</td>
+<td>
+<form action="/friends/{{ friendship.id }}/accept" method="post" style="display:inline;">
+<button type="submit">수락</button>
+</form>
+<form action="/friends/{{ friendship.id }}/reject" method="post" style="display:inline;">
+<button type="submit">거절</button>
+</form>
+</td>
+</tr>
+{% endfor %}
+</table>
+{% else %}
+<p>받은 친구 요청이 없습니다.</p>
+{% endif %}
+</section>
+
+<section>
+<h3>보낸 친구 요청</h3>
+{% if sent_requests %}
+<ul>
+{% for friendship in sent_requests %}
+<li>{{ friendship.addressee.username }}님에게 요청 대기 중</li>
+{% endfor %}
+</ul>
+{% else %}
+<p>보낸 친구 요청이 없습니다.</p>
+{% endif %}
+</section>
+
+<section>
+<h3>친구 목록</h3>
+{% if friends %}
+<ul>
+{% for friend in friends %}
+<li>{{ friend.username }}</li>
+{% endfor %}
+</ul>
+{% else %}
+<p>아직 친구가 없습니다.</p>
+{% endif %}
+</section>
+
+{% endblock %}

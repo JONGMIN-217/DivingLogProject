@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+
+{% block head %}
+<style>
+.preview-page {
+    max-width: 1120px;
+}
+
+.preview-card {
+    border: 1px solid #d9e2ec;
+    border-radius: 8px;
+    background: #fff;
+    padding: 18px;
+    margin-bottom: 16px;
+}
+
+.preview-card h2,
+.preview-card h3 {
+    margin-top: 0;
+}
+
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.summary-item {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 12px;
+}
+
+.summary-label {
+    color: #666;
+    font-size: 14px;
+}
+
+.summary-value {
+    margin-top: 6px;
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+.preview-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.preview-table th,
+.preview-table td {
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.preview-table th {
+    background: #f6f7f9;
+}
+
+.error-text {
+    color: #b00020;
+    font-weight: 700;
+}
+
+.actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.primary-button {
+    padding: 9px 14px;
+    border: 1px solid #2364d2;
+    border-radius: 6px;
+    background: #2364d2;
+    color: #fff;
+    font: inherit;
+    cursor: pointer;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="preview-page">
+    <section class="preview-card">
+        <h2>다이빙 포인트 CSV 미리보기</h2>
+        <p>파일명: {{ original_filename }}</p>
+
+        <div class="summary-grid">
+            <div class="summary-item">
+                <div class="summary-label">저장 가능 행</div>
+                <div class="summary-value">{{ preview_rows|length }}개</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">건너뛸 행</div>
+                <div class="summary-value">{{ error_rows|length }}개</div>
+            </div>
+        </div>
+    </section>
+
+    <section class="preview-card">
+        <h3>저장 예정 목록</h3>
+        {% if preview_rows %}
+        <div class="table-wrap">
+            <table class="preview-table">
+                <tr>
+                    <th>국가</th>
+                    <th>지역</th>
+                    <th>세부지역</th>
+                    <th>포인트명</th>
+                    <th>위도</th>
+                    <th>경도</th>
+                    <th>메모</th>
+                </tr>
+                {% for row in preview_rows %}
+                <tr>
+                    <td>{{ row.country }}</td>
+                    <td>{{ row.region }}</td>
+                    <td>{{ row.area }}</td>
+                    <td>{{ row.point_name }}</td>
+                    <td>{{ row.latitude }}</td>
+                    <td>{{ row.longitude }}</td>
+                    <td>{{ row.memo if row.memo else '-' }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+        {% else %}
+        <p>저장 가능한 행이 없습니다.</p>
+        {% endif %}
+    </section>
+
+    {% if error_rows %}
+    <section class="preview-card">
+        <h3>오류 목록</h3>
+        <div class="table-wrap">
+            <table class="preview-table">
+                <tr>
+                    <th>행 번호</th>
+                    <th>포인트명</th>
+                    <th>오류 내용</th>
+                </tr>
+                {% for row in error_rows %}
+                <tr>
+                    <td>{{ row.row_number }}</td>
+                    <td>{{ row.point_name if row.point_name else '-' }}</td>
+                    <td class="error-text">{{ row.reason }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </section>
+    {% endif %}
+
+    <div class="actions">
+        {% if preview_rows %}
+        <form action="/admin/divepoints/import/confirm" method="post">
+            <input type="hidden" name="source_path" value="{{ source_path }}">
+            <button class="primary-button" type="submit">최종 확인 후 저장</button>
+        </form>
+        {% endif %}
+        <a href="/admin/divepoints"><button type="button">돌아가기</button></a>
+    </div>
+</div>
+
+{% endblock %}

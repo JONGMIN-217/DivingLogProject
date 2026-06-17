@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>다이빙 투어</h2>
+
+{% if error %}
+<div style="color:red; font-weight:bold;">{{ error }}</div>
+{% endif %}
+
+{% if message %}
+<div style="color:green; font-weight:bold;">{{ message }}</div>
+{% endif %}
+
+<section>
+<h3>새 투어 만들기</h3>
+<form action="/trips" method="post">
+<label for="name">투어명</label><br>
+<input type="text" id="name" name="name" required>
+
+<br><br>
+
+<label for="start_date">시작일</label><br>
+<input type="date" id="start_date" name="start_date" required>
+
+<br><br>
+
+<label for="end_date">종료일</label><br>
+<input type="date" id="end_date" name="end_date" required>
+
+<br><br>
+
+<label for="region">지역</label><br>
+<input type="text" id="region" name="region" placeholder="예: 제주 서귀포" required>
+
+<br><br>
+
+<div>참가자</div>
+{% if friends %}
+{% for friend in friends %}
+<label>
+    <input type="checkbox" name="participant_ids" value="{{ friend.id }}">
+    {{ friend.username }}
+</label><br>
+{% endfor %}
+{% else %}
+<p>추가할 수 있는 친구가 없습니다. 친구를 먼저 추가하세요.</p>
+{% endif %}
+
+<br>
+<button type="submit">투어 만들기</button>
+</form>
+</section>
+
+<section>
+<h3>내 투어</h3>
+{% if trips %}
+<table border="1">
+<tr>
+<th>투어명</th>
+<th>기간</th>
+<th>지역</th>
+<th>상세</th>
+</tr>
+{% for trip in trips %}
+<tr>
+<td>{{ trip.name }}</td>
+<td>{{ trip.start_date }} ~ {{ trip.end_date }}</td>
+<td>{{ trip.region }}</td>
+<td><a href="/trips/{{ trip.id }}">보기</a></td>
+</tr>
+{% endfor %}
+</table>
+{% else %}
+<p>참가 중인 투어가 없습니다.</p>
+{% endif %}
+</section>
+
+{% endblock %}

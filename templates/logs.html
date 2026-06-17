@@ -81,6 +81,20 @@
     color: #666;
 }
 
+.error-summary {
+    margin: 0 0 10px;
+    color: #b42318;
+    font-weight: 700;
+}
+
+.bulk-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin: 12px 0;
+}
+
 .logs-table-wrap {
     overflow-x: auto;
 }
@@ -122,8 +136,15 @@
 
 {% block content %}
 
-<div class="logs-page">
+    <div class="logs-page">
     <h2>전체 다이빙 로그</h2>
+
+    {% if message %}
+    <p class="result-summary">{{ message }}</p>
+    {% endif %}
+    {% if error %}
+    <p class="error-summary">{{ error }}</p>
+    {% endif %}
 
     <form class="filter-panel" action="/logs" method="get">
         <div class="filter-grid">
@@ -133,12 +154,23 @@
             </div>
 
             <div class="filter-field">
-                <label for="region_id">지역</label>
-                <select id="region_id" name="region_id">
+                <label for="country_id">국가</label>
+                <select id="country_id" name="country_id">
                     <option value="">전체</option>
-                    {% for region in regions %}
-                    <option value="{{ region.id }}" {% if filters.region_id == region.id|string %}selected{% endif %}>{{ region.name }}</option>
+                    {% for country in countries %}
+                    <option value="{{ country.id }}" {% if filters.country_id == country.id|string %}selected{% endif %}>{{ country.name }}</option>
                     {% endfor %}
+                </select>
+            </div>
+
+            <div class="filter-field">
+                <label for="region_id">지역</label>
+                <select id="region_id" name="region_id" {% if not filters.country_id %}disabled{% endif %}>
+                    {% if filters.country_id %}
+                    <option value="">전체</option>
+                    {% else %}
+                    <option value="">국가를 먼저 선택하세요</option>
+                    {% endif %}
                 </select>
             </div>
 
@@ -172,12 +204,13 @@
             <div class="filter-field">
                 <label for="sort">정렬 기준</label>
                 <select id="sort" name="sort">
-                    <option value="date" {% if filters.sort == "date" %}selected{% endif %}>날짜</option>
+                    <option value="number" {% if filters.sort in ["number", "id"] %}selected{% endif %}>번호</option>
+                    <option value="date" {% if filters.sort == "date" %}selected{% endif %}>날짜/입수시간</option>
+                    <option value="country" {% if filters.sort == "country" %}selected{% endif %}>국가</option>
                     <option value="region" {% if filters.sort == "region" %}selected{% endif %}>지역</option>
                     <option value="area" {% if filters.sort == "area" %}selected{% endif %}>세부지역</option>
                     <option value="point" {% if filters.sort == "point" %}selected{% endif %}>포인트</option>
                     <option value="buddy" {% if filters.sort == "buddy" %}selected{% endif %}>버디</option>
-                    <option value="id" {% if filters.sort == "id" %}selected{% endif %}>번호</option>
                 </select>
             </div>
 
@@ -197,12 +230,22 @@
     </form>
 
     <p class="result-summary">총 {{ logs|length }}개 로그</p>
+    <div class="bulk-actions">
+        <button class="btn btn-danger" type="submit" form="bulkDeleteForm" onclick="return confirmSelectedLogs();">선택삭제</button>
+        <a class="btn btn-danger" href="/logs/delete-all-confirm">전체 로그 삭제</a>
+        {% if request.session.get("is_admin") %}
+        <a class="btn" href="/admin/recalculate-dive-numbers">다이브 번호 재정렬</a>
+        {% endif %}
+    </div>
 
+    <form id="bulkDeleteForm" action="/logs/delete-selected" method="post">
     <div class="logs-table-wrap">
         <table class="logs-table">
             <tr>
+                <th><input type="checkbox" id="selectAllLogs" title="전체선택"></th>
                 <th>번호</th>
                 <th>날짜</th>
+                <th>국가</th>
                 <th>지역</th>
                 <th>세부지역</th>
                 <th>포인트</th>
@@ -218,9 +261,16 @@
             {% set point = log.dive_point %}
             {% set area = point.area if point else none %}
             {% set region = area.region if area else none %}
+            {% set country = region.country if region else none %}
             <tr>
-                <td><a href="/log/{{ log.id }}">#{{ log.id }}</a></td>
+                <td>
+                    {% if request.session.get("is_admin") or log.user_id == request.session.get("user_id") %}
+                    <input class="log-checkbox" type="checkbox" name="log_ids" value="{{ log.id }}">
+                    {% endif %}
+                </td>
+                <td><a href="/log/{{ log.id }}">Dive #{{ log.dive_number or log.id }}</a></td>
                 <td>{{ log.dive_date }}</td>
+                <td>{{ country.name if country else '-' }}</td>
                 <td>{{ region.name if region else '-' }}</td>
                 <td>{{ area.name if area else '-' }}</td>
                 <td>{{ point.name if point else '-' }}</td>
@@ -230,29 +280,38 @@
                 <td>{{ log.exit_time.strftime('%H:%M') if log.exit_time else '-' }}</td>
                 <td>{{ log.dive_time if log.dive_time is not none else '-' }}{% if log.dive_time is not none %} 분{% endif %}</td>
                 <td class="actions">
+                    {% if log.user_id == request.session.get("user_id") %}
                     <a class="btn" href="/log/{{ log.id }}/edit">수정</a>
                     <form action="/log/{{ log.id }}/delete" method="post" onsubmit="return confirm('이 로그를 삭제하시겠습니까?');">
                         <button class="btn btn-danger" type="submit">삭제</button>
                     </form>
+                    {% else %}
+                    -
+                    {% endif %}
                 </td>
             </tr>
             {% else %}
             <tr>
-                <td class="empty-row" colspan="11">조건에 맞는 로그가 없습니다.</td>
+                <td class="empty-row" colspan="13">조건에 맞는 로그가 없습니다.</td>
             </tr>
             {% endfor %}
         </table>
     </div>
+    </form>
 </div>
 
 <script>
+const selectedCountryId = "{{ filters.country_id }}";
 const selectedRegionId = "{{ filters.region_id }}";
 const selectedAreaId = "{{ filters.area_id }}";
 const selectedPointId = "{{ filters.point_id }}";
 
+const countrySelect = document.getElementById("country_id");
 const regionSelect = document.getElementById("region_id");
 const areaSelect = document.getElementById("area_id");
 const pointSelect = document.getElementById("point_id");
+const selectAllLogs = document.getElementById("selectAllLogs");
+const logCheckboxes = Array.from(document.querySelectorAll(".log-checkbox"));
 
 function resetSelect(select, message, disabled){
     select.innerHTML = "";
@@ -284,6 +343,20 @@ function fillSelect(select, items, selectedValue){
     select.disabled = false;
 }
 
+async function loadRegions(countryId, selectedValue){
+    resetSelect(areaSelect, "지역을 먼저 선택하세요", true);
+    resetSelect(pointSelect, "세부지역을 먼저 선택하세요", true);
+
+    if(!countryId){
+        resetSelect(regionSelect, "국가를 먼저 선택하세요", true);
+        return;
+    }
+
+    const res = await fetch(`/regions?country_id=${countryId}`);
+    const regions = await res.json();
+    fillSelect(regionSelect, regions, selectedValue);
+}
+
 async function loadAreas(regionId, selectedValue){
     resetSelect(pointSelect, "세부지역을 먼저 선택하세요", true);
 
@@ -308,6 +381,10 @@ async function loadPoints(areaId, selectedValue){
     fillSelect(pointSelect, points, selectedValue);
 }
 
+countrySelect.addEventListener("change", async function(){
+    await loadRegions(this.value, "");
+});
+
 regionSelect.addEventListener("change", async function(){
     await loadAreas(this.value, "");
 });
@@ -316,15 +393,37 @@ areaSelect.addEventListener("change", async function(){
     await loadPoints(this.value, "");
 });
 
-if(selectedRegionId){
-    loadAreas(selectedRegionId, selectedAreaId).then(() => {
-        if(selectedAreaId){
-            loadPoints(selectedAreaId, selectedPointId);
+if(selectedCountryId){
+    loadRegions(selectedCountryId, selectedRegionId).then(() => {
+        if(selectedRegionId){
+            loadAreas(selectedRegionId, selectedAreaId).then(() => {
+                if(selectedAreaId){
+                    loadPoints(selectedAreaId, selectedPointId);
+                }
+            });
         }
     });
 }else{
+    resetSelect(regionSelect, "국가를 먼저 선택하세요", true);
     resetSelect(areaSelect, "지역을 먼저 선택하세요", true);
     resetSelect(pointSelect, "세부지역을 먼저 선택하세요", true);
+}
+
+if(selectAllLogs){
+    selectAllLogs.addEventListener("change", function(){
+        logCheckboxes.forEach(checkbox => {
+            checkbox.checked = selectAllLogs.checked;
+        });
+    });
+}
+
+function confirmSelectedLogs(){
+    const selectedCount = logCheckboxes.filter(checkbox => checkbox.checked).length;
+    if(selectedCount === 0){
+        alert("삭제할 로그를 선택하세요.");
+        return false;
+    }
+    return confirm(`선택한 로그 ${selectedCount}개를 삭제하시겠습니까?`);
 }
 </script>
 

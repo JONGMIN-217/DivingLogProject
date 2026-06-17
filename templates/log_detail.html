@@ -186,22 +186,24 @@
 <div class="log-detail-page">
     <div class="detail-header">
         <div class="detail-title">
-            <h2>다이빙 로그 #{{ log.id }}</h2>
+            <h2>다이빙 로그 Dive #{{ log.dive_number or log.id }}</h2>
             <p>{{ log.dive_date }} · {{ dive_point.name if dive_point else '-' }}</p>
         </div>
 
+        {% if log.user_id == request.session.get("user_id") %}
         <div class="action-group">
             <a class="btn btn-primary" href="/log/{{ log.id }}/edit">수정</a>
             <form action="/log/{{ log.id }}/delete" method="post" onsubmit="return confirm('이 로그를 삭제하시겠습니까?');">
                 <button class="btn btn-danger" type="submit">삭제</button>
             </form>
         </div>
+        {% endif %}
     </div>
 
     <div class="summary-grid">
         <section class="summary-card">
             <div class="summary-label">로그 번호</div>
-            <div class="summary-value">#{{ log.id }}</div>
+            <div class="summary-value">Dive #{{ log.dive_number or log.id }}</div>
         </section>
 
         <section class="summary-card">
@@ -226,7 +228,7 @@
             <div class="info-list">
                 <div class="info-row">
                     <div class="info-label">로그 번호</div>
-                    <div class="info-value">#{{ log.id }}</div>
+                    <div class="info-value">Dive #{{ log.dive_number or log.id }}</div>
                 </div>
                 <div class="info-row">
                     <div class="info-label">날짜</div>
