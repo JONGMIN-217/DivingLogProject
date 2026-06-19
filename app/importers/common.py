@@ -64,7 +64,7 @@ class ImportDive:
             "위도": _format_number(self.latitude, precision=6),
             "경도": _format_number(self.longitude, precision=6),
             "사이트명": self.site_name or "",
-            "신뢰도": _format_confidence(self.confidence),
+            "값 출처": _format_confidence(self.confidence),
             "메모": self.note or "",
             "경고": " / ".join(self.warnings),
         }

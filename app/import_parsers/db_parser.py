@@ -36,8 +36,22 @@ SHEARWATER_DIVE_DETAILS_FIELDS = {
 SHEARWATER_CALCULATED_FIELDS = {
     "calculated_values_from_samples",
     "log_id",
+    "dive_id",
+    "DiveId",
     "file_name",
 }
+SHEARWATER_LOG_MATCH_KEYS = (
+    "dive_id",
+    "DiveId",
+    "diveid",
+    "log_id",
+    "logId",
+    "logid",
+    "id",
+    "file_name",
+    "FileName",
+    "filename",
+)
 
 
 class DiveComputerDbImportParser(ImportParser):
@@ -345,7 +359,12 @@ def _parse_shearwater_dives(connection, original_filename: str, parser_name: str
     ).fetchall()
     dives: list[ImportDive] = []
     for row in rows:
-        calculated, calculated_warning = _match_calculated_values(row, mapping, log_data)
+        direct_calculated, direct_warning = _calculated_values_from_row(row)
+        matched_calculated, matched_warning = _match_calculated_values(row, mapping, log_data)
+        calculated = {**matched_calculated, **direct_calculated}
+        calculated_warning = " / ".join(
+            warning for warning in (matched_warning, direct_warning) if warning
+        )
         if calculated:
             stats["log_data_match_count"] += 1
         try:
@@ -375,56 +394,30 @@ def _read_log_data_calculated_values(connection) -> dict[str, object]:
         "parse_failure_count": 0,
         "keys": set(),
     }
-    table_names = {
-        row["name"]
-        for row in connection.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-        ).fetchall()
-    }
-    if "log_data" not in table_names:
-        return empty
-
-    columns = [
-        row["name"]
-        for row in connection.execute("PRAGMA table_info(log_data)").fetchall()
-    ]
-    normalized_columns = {_normalize_key(column): column for column in columns}
-    calculated_column = normalized_columns.get("calculatedvaluesfromsamples")
-    if not calculated_column:
-        return empty
-
-    rows = connection.execute("SELECT * FROM log_data").fetchall()
     by_key: dict[str, dict[str, object]] = {}
     parse_success_count = 0
     parse_failure_count = 0
     keys: set[str] = set()
-    for row in rows:
-        parsed = None
-        warning = ""
-        text = _stringify_value(row[calculated_column])
-        if text:
-            try:
-                parsed = json.loads(text)
-                if isinstance(parsed, dict):
-                    parse_success_count += 1
-                    keys.update(parsed.keys())
-                else:
-                    parsed = None
-                    parse_failure_count += 1
-                    warning = "calculated_values_from_samples 형식이 객체가 아닙니다."
-            except (TypeError, ValueError):
-                parse_failure_count += 1
-                warning = "calculated_values_from_samples JSON 파싱 실패"
 
-        entry = {
-            "values": parsed if isinstance(parsed, dict) else {},
-            "warning": warning,
-        }
-        for key_name in ("log_id", "DiveId", "dive_id", "logId", "file_name", "FileName"):
-            if key_name in row.keys():
-                key_value = _stringify_value(row[key_name]).strip()
-                if key_value:
-                    by_key[key_value] = entry
+    for table_name in _calculated_value_table_names(connection):
+        rows = connection.execute(f"SELECT * FROM {_quote_identifier(table_name)}").fetchall()
+        for row in rows:
+            parsed, warning = _calculated_values_from_row(row)
+            if parsed:
+                parse_success_count += 1
+                keys.update(parsed.keys())
+            elif warning:
+                parse_failure_count += 1
+
+            entry = {
+                "values": parsed,
+                "warning": warning,
+            }
+            for key_name in SHEARWATER_LOG_MATCH_KEYS:
+                key_value = _row_value_by_normalized(row, key_name)
+                key_text = _stringify_value(key_value).strip()
+                if key_text:
+                    by_key[key_text] = entry
 
     return {
         "by_key": by_key,
@@ -434,13 +427,47 @@ def _read_log_data_calculated_values(connection) -> dict[str, object]:
     }
 
 
+def _calculated_value_table_names(connection) -> list[str]:
+    table_names = [
+        row["name"]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+    ]
+    result = []
+    for table_name in table_names:
+        columns = [
+            row["name"]
+            for row in connection.execute(f"PRAGMA table_info({_quote_identifier(table_name)})").fetchall()
+        ]
+        normalized_columns = {_normalize_key(column) for column in columns}
+        if "calculatedvaluesfromsamples" in normalized_columns or _normalize_key(table_name) == "logdata":
+            result.append(table_name)
+    return result
+
+
+def _calculated_values_from_row(row) -> tuple[dict[str, object], str]:
+    value = _row_value_by_normalized(row, "calculated_values_from_samples")
+    if value is None:
+        return {}, ""
+    text = _stringify_value(value).strip()
+    if not text:
+        return {}, ""
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError):
+        return {}, "calculated_values_from_samples JSON 파싱 실패"
+    if not isinstance(parsed, dict):
+        return {}, "calculated_values_from_samples 형식이 key-value 객체가 아닙니다."
+    return parsed, ""
+
+
 def _match_calculated_values(row, mapping: dict[str, str], log_data: dict[str, object]) -> tuple[dict[str, object], str]:
     by_key = log_data.get("by_key") or {}
     keys = [
         _row_value(row, mapping.get("external_id")),
         _row_value(row, mapping.get("file_name")),
-        _row_value(row, "DiveId" if "DiveId" in row.keys() else None),
-        _row_value(row, "FileName" if "FileName" in row.keys() else None),
+        *(_row_value_by_normalized(row, key_name) for key_name in SHEARWATER_LOG_MATCH_KEYS),
     ]
     for key in keys:
         text = _stringify_value(key).strip()
@@ -555,20 +582,20 @@ def _row_to_import_dive(
         calculated_values,
         ("max_depth", "maximum_depth", "maxdepth", "depth"),
         _row_value(row, mapping.get("max_depth")),
-        "dive_details",
+        "명시 컬럼(dive_details)",
         warnings,
     )
     avg_depth, avg_depth_source = _resolve_depth(
         calculated_values,
         ("avg_depth", "average_depth", "averagedepth"),
         _row_value(row, mapping.get("avg_depth")),
-        "dive_details",
+        "명시 컬럼(dive_details)",
         warnings,
     )
     if avg_depth is None:
         avg_depth = _average_depth_from_tank_profile(_row_value(row, mapping.get("tank_profile_data"))) or None
         if avg_depth is not None:
-            avg_depth_source = "프로파일 추정"
+            avg_depth_source = "profile/sample 기반 계산"
     water_temp, water_temp_source = _resolve_water_temp(row, mapping, calculated_values, warnings)
     start_pressure, start_pressure_source = _resolve_pressure(
         calculated_values,
@@ -656,6 +683,14 @@ def _row_value(row, column: str | None):
     if not column:
         return None
     return row[column]
+
+
+def _row_value_by_normalized(row, column_name: str):
+    target = _normalize_key(column_name)
+    for key in row.keys():
+        if _normalize_key(key) == target:
+            return row[key]
+    return None
 
 
 def _parse_date_any(value) -> object:
@@ -760,14 +795,14 @@ def _resolve_dive_time(row, mapping: dict[str, str], table_name: str, calculated
             if minutes == 0:
                 warnings.append("다이브타임 계산값이 0이라 비워 두었습니다.")
                 return None, "계산값 확인 필요"
-            return minutes, "계산값"
+            return minutes, "계산값(calculated_values_from_samples)"
 
     value = _parse_duration_minutes(_row_value(row, mapping.get("dive_time")), table_name)
     if value == 0:
         warnings.append("다이브타임이 0이라 비워 두었습니다.")
-        return None, "dive_details 확인 필요"
+        return None, "명시 컬럼(dive_details) 확인 필요"
     if value is not None:
-        return value, "dive_details"
+        return value, "명시 컬럼(dive_details)"
     warnings.append("다이브타임 정보 없음")
     return None, ""
 
@@ -796,7 +831,7 @@ def _resolve_depth(
             warnings.append(f"{_display_calculated_key(calc_key)} 계산값이 0이라 비워 두었습니다.")
             return None, "계산값 확인 필요"
         if value is not None:
-            return value, "계산값"
+            return value, "계산값(calculated_values_from_samples)"
 
     value = _depth_value_to_meters(detail_value, "")
     if value == 0.0:
@@ -834,7 +869,7 @@ def _resolve_water_temp(row, mapping: dict[str, str], calculated_values: dict[st
             warnings.append("수온 계산값이 0이라 비워 두었습니다.")
             return None, "계산값 확인 필요"
         if value is not None:
-            return value, "계산값"
+            return value, "계산값(calculated_values_from_samples)"
 
     temperature_values = [
         _temperature_value_to_celsius(_row_value(row, mapping.get("min_temp"))),
@@ -844,7 +879,7 @@ def _resolve_water_temp(row, mapping: dict[str, str], calculated_values: dict[st
     ]
     valid_values = [value for value in temperature_values if value not in (None, 0.0)]
     if valid_values:
-        return valid_values[0], "dive_details"
+        return valid_values[0], "명시 컬럼(dive_details)"
 
     if any(value == 0.0 for value in temperature_values):
         warnings.append("수온 정보 없음")
@@ -875,14 +910,14 @@ def _resolve_pressure(
             warnings.append(f"{_display_calculated_key(calc_key)} 계산값이 0이라 비워 두었습니다.")
             return None, "계산값 확인 필요"
         if value is not None:
-            return value, "계산값"
+            return value, "계산값(calculated_values_from_samples)"
 
     value = parse_int_value(_stringify_value(detail_value))
     if value == 0:
         warnings.append("탱크 압력 값이 0이라 비워 두었습니다.")
-        return None, "dive_details 확인 필요"
+        return None, "명시 컬럼(dive_details) 확인 필요"
     if value is not None:
-        return value, "dive_details"
+        return value, "명시 컬럼(dive_details)"
     return None, ""
 
 
