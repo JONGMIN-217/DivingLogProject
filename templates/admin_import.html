@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block head %}
+<style>
+.admin-import-page{
+    max-width:1000px;
+}
+
+.admin-import-header{
+    margin-bottom:18px;
+}
+
+.admin-badge-large{
+    display:inline-block;
+    margin-left:8px;
+    padding:4px 8px;
+    border-radius:999px;
+    background:#b45309;
+    color:#ffffff;
+    font-size:12px;
+}
+
+.admin-actions{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-bottom:18px;
+}
+
+.admin-actions a{
+    display:inline-block;
+    padding:8px 10px;
+    border:1px solid #cbd5e1;
+    border-radius:6px;
+    color:#111827;
+    text-decoration:none;
+    background:#ffffff;
+}
+
+.admin-actions .admin-link{
+    border-color:#b45309;
+    background:#fff7ed;
+    color:#92400e;
+    font-weight:bold;
+}
+
+.import-table{
+    width:100%;
+    border-collapse:collapse;
+}
+
+.import-table th,
+.import-table td{
+    border:1px solid #e2e8f0;
+    padding:8px;
+    text-align:left;
+}
+
+.import-table th{
+    background:#f8fafc;
+}
+
+.empty-state{
+    padding:16px;
+    border:1px solid #e2e8f0;
+    border-radius:8px;
+    background:#f8fafc;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="admin-import-page">
+    <div class="admin-import-header">
+        <h2>Import 관리 <span class="admin-badge-large">관리자</span></h2>
+        <p>업로드된 Import 파일과 관리자용 Import 관련 기능을 확인합니다.</p>
+    </div>
+
+    <div class="admin-actions">
+        <a href="/import">로그 가져오기</a>
+        <a class="admin-link" href="/admin/divepoints">포인트 CSV 가져오기</a>
+        <a class="admin-link" href="/admin/recalculate-dive-numbers">다이빙 번호 재정렬</a>
+    </div>
+
+    {% if import_files %}
+    <table class="import-table">
+        <tr>
+            <th>파일명</th>
+            <th>크기</th>
+            <th>수정일시</th>
+        </tr>
+        {% for file in import_files %}
+        <tr>
+            <td>{{ file.name }}</td>
+            <td>{{ file.size_kb }} KB</td>
+            <td>{{ file.modified_at }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <div class="empty-state">표시할 Import 파일이 없습니다.</div>
+    {% endif %}
+</div>
+{% endblock %}

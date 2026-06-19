@@ -17,10 +17,59 @@ body{
 
 .navbar{
     margin-bottom:20px;
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    align-items:center;
 }
 
 .navbar button{
-    margin-right:10px;
+    border:1px solid #cbd5e1;
+    background:#ffffff;
+    border-radius:6px;
+    padding:8px 10px;
+    cursor:pointer;
+}
+
+.navbar .admin-button{
+    border-color:#b45309;
+    background:#fff7ed;
+    color:#92400e;
+    font-weight:bold;
+}
+
+.admin-badge{
+    display:inline-block;
+    margin-left:4px;
+    padding:2px 5px;
+    border-radius:999px;
+    background:#b45309;
+    color:#ffffff;
+    font-size:11px;
+    line-height:1;
+}
+
+.nav-user{
+    margin-left:auto;
+}
+
+.flash-message,
+.flash-error{
+    margin:0 0 16px;
+    padding:10px 12px;
+    border-radius:6px;
+}
+
+.flash-message{
+    background:#ecfdf5;
+    border:1px solid #a7f3d0;
+    color:#065f46;
+}
+
+.flash-error{
+    background:#fef2f2;
+    border:1px solid #fecaca;
+    color:#991b1b;
 }
 </style>
 
@@ -34,18 +83,24 @@ body{
 <div class="navbar">
     <a href="/"><button>홈</button></a>
     <a href="/map"><button>지도</button></a>
-    <a href="/logs"><button>로그</button></a>
     <a href="/log/add"><button>로그 추가</button></a>
+    <a href="/logs"><button>전체 로그</button></a>
+    <a href="/stats"><button>통계</button></a>
     <a href="/friends"><button>친구</button></a>
     <a href="/trips"><button>투어</button></a>
-    <a href="/marine-weather"><button>해양·기상</button></a>
-    <a href="/import"><button>가져오기</button></a>
+    <a href="/import"><button>로그 가져오기</button></a>
     {% if request.session.get("user_id") %}
     {% if request.session.get("is_admin") %}
-    <a href="/admin/users"><button>사용자 관리</button></a>
-    <a href="/admin/divepoints"><button>포인트 관리</button></a>
+    <a href="/admin"><button class="admin-button">관리자 대시보드 <span class="admin-badge">관리자</span></button></a>
+    <a href="/admin/divepoints"><button class="admin-button">포인트 관리 <span class="admin-badge">관리자</span></button></a>
+    <a href="/admin/users"><button class="admin-button">사용자 관리 <span class="admin-badge">관리자</span></button></a>
+    <a href="/admin/import"><button class="admin-button">Import 관리 <span class="admin-badge">관리자</span></button></a>
+    <a href="/admin/recalculate-dive-numbers"><button class="admin-button">다이빙 번호 재정렬 <span class="admin-badge">관리자</span></button></a>
     {% endif %}
-    <span>{{ request.session.get("username") }}님</span>
+    <span class="nav-user">
+        {{ request.session.get("username") }}님
+        {% if request.session.get("is_admin") %}<span class="admin-badge">관리자</span>{% endif %}
+    </span>
     <form action="/logout" method="post" style="display:inline;">
         <button type="submit">로그아웃</button>
     </form>
@@ -54,6 +109,13 @@ body{
     <a href="/register"><button>회원가입</button></a>
     {% endif %}
 </div>
+
+{% if request.query_params.get("message") %}
+<div class="flash-message">{{ request.query_params.get("message") }}</div>
+{% endif %}
+{% if request.query_params.get("error") %}
+<div class="flash-error">{{ request.query_params.get("error") }}</div>
+{% endif %}
 
 <!-- ✅ 각 페이지 내용 들어가는 자리 -->
 {% block content %}{% endblock %}

@@ -213,7 +213,10 @@ def admin_required_redirect(request: Request, db):
         return None, login_required_redirect(request)
 
     if not current_user.is_admin:
-        return current_user, RedirectResponse(url="/", status_code=303)
+        return current_user, RedirectResponse(
+            url="/?error=관리자 권한이 필요한 페이지입니다.",
+            status_code=303,
+        )
 
     return current_user, None
 
@@ -1378,6 +1381,75 @@ async def upload_trip_photo(
         return RedirectResponse(url=f"/trips/{trip_id}?message=사진을 업로드했습니다.", status_code=303)
     finally:
         db.close()
+
+
+@app.get("/admin")
+def admin_dashboard(request: Request):
+    db = SessionLocal()
+    try:
+        current_user, redirect = admin_required_redirect(request, db)
+        if redirect:
+            return redirect
+
+        stats = {
+            "user_count": db.query(func.count(User.id)).scalar() or 0,
+            "admin_count": db.query(func.count(User.id)).filter(User.is_admin.is_(True)).scalar() or 0,
+            "log_count": db.query(func.count(DiveLog.id)).scalar() or 0,
+            "point_count": db.query(func.count(DivePoint.id)).scalar() or 0,
+            "import_file_count": len(_admin_import_files()),
+        }
+
+        return templates.TemplateResponse(
+            "admin_dashboard.html",
+            {
+                "request": request,
+                "current_user": current_user,
+                "stats": stats,
+                "message": request.query_params.get("message"),
+                "error": request.query_params.get("error"),
+            },
+        )
+    finally:
+        db.close()
+
+
+@app.get("/admin/import")
+def admin_import_management(request: Request):
+    db = SessionLocal()
+    try:
+        current_user, redirect = admin_required_redirect(request, db)
+        if redirect:
+            return redirect
+
+        return templates.TemplateResponse(
+            "admin_import.html",
+            {
+                "request": request,
+                "current_user": current_user,
+                "import_files": _admin_import_files(),
+            },
+        )
+    finally:
+        db.close()
+
+
+def _admin_import_files():
+    files = []
+    if not IMPORT_UPLOAD_DIR.exists():
+        return files
+
+    for path in sorted(IMPORT_UPLOAD_DIR.iterdir(), key=lambda item: item.stat().st_mtime, reverse=True):
+        if not path.is_file():
+            continue
+        stat = path.stat()
+        files.append(
+            {
+                "name": path.name,
+                "size_kb": round(stat.st_size / 1024, 1),
+                "modified_at": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
+            }
+        )
+    return files[:50]
 
 
 @app.get("/admin/users")
