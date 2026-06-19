@@ -33,6 +33,7 @@ def dive_to_batch_item(dive: ImportDive, index: int):
         "source": dive.source,
         "source_file": dive.source_file,
         "external_id": dive.external_id,
+        "source_file_hash": getattr(dive, "source_file_hash", None),
         "dive_date": _date_to_text(dive.dive_date),
         "entry_time": _time_to_text(dive.entry_time),
         "exit_time": _time_to_text(dive.exit_time),
@@ -89,6 +90,7 @@ def batch_item_to_dive(item: dict):
         warnings=item.get("warnings") or [],
         raw=item.get("raw") or {},
     )
+    dive.source_file_hash = item.get("source_file_hash")
     dive.is_new_point_candidate = bool(item.get("is_new_point_candidate"))
     dive.candidate_country = item.get("candidate_country") or ""
     dive.candidate_region = item.get("candidate_region") or ""

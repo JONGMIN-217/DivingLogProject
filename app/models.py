@@ -147,6 +147,9 @@ class DiveLog(Base):
     end_pressure = Column(Integer)
     image_path = Column(String, nullable=True)
     note = Column(String)
+    import_source = Column(String, nullable=True, index=True)
+    import_external_id = Column(String, nullable=True, index=True)
+    import_source_file_hash = Column(String, nullable=True, index=True)
 
     dive_point = relationship("DivePoint", backref="dive_logs")
     user = relationship("User", foreign_keys=[user_id], backref="dive_logs")

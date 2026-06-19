@@ -38,7 +38,7 @@ def import_batch_duplicate_summary(db, batch: dict, user_id: int | None):
     for item in batch.get("dives", []):
         dive = batch_item_to_dive(item)
         point_id = item.get("selected_point_id") or item.get("suggested_point_id")
-        duplicate = find_import_duplicate(existing_logs, dive, point_id)
+        duplicate = find_import_duplicate(existing_logs, dive, point_id, item.get("source_file_hash"))
         if not duplicate:
             continue
 
@@ -72,8 +72,8 @@ def import_batch_duplicate_summary(db, batch: dict, user_id: int | None):
     }
 
 
-def find_import_duplicate(existing_logs: list[DiveLog], dive: ImportDive, point_id=None):
-    import_key = normalize_import_key(dive, point_id)
+def find_import_duplicate(existing_logs: list[DiveLog], dive: ImportDive, point_id=None, source_file_hash=None):
+    import_key = normalize_import_key(dive, point_id, source_file_hash)
     if not import_key["dive_date"]:
         return None
 
@@ -98,11 +98,12 @@ def find_import_duplicate(existing_logs: list[DiveLog], dive: ImportDive, point_
     return best_match
 
 
-def normalize_import_key(dive: ImportDive, point_id=None):
+def normalize_import_key(dive: ImportDive, point_id=None, source_file_hash=None):
     normalized = normalize_import_dive(dive)
     return {
         "source": _normalized_text(dive.source),
         "external_id": _normalized_text(dive.external_id),
+        "source_file_hash": _normalized_text(source_file_hash or getattr(dive, "source_file_hash", None)),
         "dive_date": normalized["dive_date"],
         "entry_minute": _minute_of_day(normalized["entry_time"]),
         "exit_minute": _minute_of_day(normalized["exit_time"]),
@@ -119,8 +120,9 @@ def normalize_import_key(dive: ImportDive, point_id=None):
 def normalize_existing_key(log: DiveLog):
     point = log.dive_point
     return {
-        "source": "",
-        "external_id": "",
+        "source": _normalized_text(getattr(log, "import_source", None)),
+        "external_id": _normalized_text(getattr(log, "import_external_id", None)),
+        "source_file_hash": _normalized_text(getattr(log, "import_source_file_hash", None)),
         "dive_date": log.dive_date,
         "entry_minute": _minute_of_day(log.entry_time),
         "exit_minute": _minute_of_day(log.exit_time),
@@ -145,6 +147,17 @@ def compare_duplicate_keys(import_key: dict, existing_key: dict):
                 "score": 100,
                 "matched_fields": ["source", "external_id"],
                 "reason": "source와 external_id가 일치",
+            }
+
+    if import_key["source_file_hash"] and import_key["external_id"]:
+        if (
+            import_key["source_file_hash"] == existing_key["source_file_hash"]
+            and import_key["external_id"] == existing_key["external_id"]
+        ):
+            return {
+                "score": 100,
+                "matched_fields": ["source_file_hash", "external_id"],
+                "reason": "파일 해시와 external_id가 일치",
             }
 
     if import_key["dive_date"] != existing_key["dive_date"]:

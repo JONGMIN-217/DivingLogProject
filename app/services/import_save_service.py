@@ -48,7 +48,8 @@ def save_import_items(db, items: list[dict | ImportDive], user_id: int | None):
             from app.services.import_duplicate_service import find_import_duplicate
 
             existing_logs = _existing_logs_for_user(db, user_id)
-            duplicate_log = find_import_duplicate(existing_logs, dive, point.id)
+            source_file_hash = item.get("source_file_hash") if isinstance(item, dict) else getattr(dive, "source_file_hash", None)
+            duplicate_log = find_import_duplicate(existing_logs, dive, point.id, source_file_hash)
             user_included_preview_duplicate = isinstance(item, dict) and bool(item.get("duplicate_match"))
             if duplicate_log and not user_included_preview_duplicate:
                 result["duplicate_count"] += 1
@@ -71,6 +72,9 @@ def save_import_items(db, items: list[dict | ImportDive], user_id: int | None):
                         end_pressure=normalized["end_pressure"],
                         buddy=normalized["buddy"],
                         note=normalized["note"],
+                        import_source=_safe_text(dive.source),
+                        import_external_id=_safe_text(dive.external_id),
+                        import_source_file_hash=_safe_text(source_file_hash),
                     )
                 )
                 db.flush()

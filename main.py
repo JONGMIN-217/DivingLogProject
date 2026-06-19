@@ -7,6 +7,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from datetime import date, datetime
+import hashlib
 
 from app.auth import hash_password, verify_password
 from app.database import Base, SessionLocal, engine
@@ -359,6 +360,14 @@ def save_upload_file(upload_file: UploadFile, destination: Path, max_size: int):
             buffer.write(chunk)
 
     return None
+
+
+def file_sha256(path: Path):
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def parse_float_value(value: str | None):
@@ -811,6 +820,9 @@ def ensure_dive_log_time_columns():
         "user_id": "INTEGER",
         "buddy_user_id": "INTEGER",
         "dive_number": "INTEGER",
+        "import_source": "VARCHAR",
+        "import_external_id": "VARCHAR",
+        "import_source_file_hash": "VARCHAR",
     }
 
     with engine.begin() as connection:
@@ -1706,6 +1718,10 @@ async def import_preview(request: Request, import_file: UploadFile = File(...)):
         preview = parse_import_file(saved_path, original_filename)
         attach_point_suggestions(db, preview)
         batch = create_import_batch(IMPORT_UPLOAD_DIR, preview)
+        source_file_hash = file_sha256(saved_path)
+        batch["source_file_hash"] = source_file_hash
+        for item in batch.get("dives", []):
+            item["source_file_hash"] = source_file_hash
         apply_duplicate_detection_to_batch(
             db,
             batch,
@@ -1884,6 +1900,10 @@ def import_confirm(
                 for index, dive in enumerate(preview.dives)
             ]
         }
+        source_file_hash = file_sha256(import_path)
+        batch["source_file_hash"] = source_file_hash
+        for item in batch.get("dives", []):
+            item["source_file_hash"] = source_file_hash
         apply_import_batch_page_form(
             batch,
             [str(index) for index in range(len(preview.dives))],
