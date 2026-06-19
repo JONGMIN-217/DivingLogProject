@@ -45,6 +45,7 @@ from app.services.import_duplicate_service import (
     apply_duplicate_detection_to_batch,
     import_batch_duplicate_summary as build_import_batch_duplicate_summary,
 )
+from app.services.time_format_service import format_dive_duration
 
 from fastapi import UploadFile, File
 import uuid
@@ -2336,6 +2337,7 @@ def stats_page(request: Request):
         avg_depth = visible_logs_query.with_entities(func.avg(DiveLog.avg_depth)).scalar()
 
         total_dive_time = visible_logs_query.with_entities(func.sum(DiveLog.dive_time)).scalar()
+        total_dive_time_display = format_dive_duration(total_dive_time)
 
         avg_water_temp = visible_logs_query.with_entities(func.avg(DiveLog.water_temp)).scalar()
 
@@ -2392,6 +2394,7 @@ def stats_page(request: Request):
                 "max_depth": max_depth,
                 "avg_depth": avg_depth,
                 "total_dive_time": total_dive_time,
+                "total_dive_time_display": total_dive_time_display,
                 "avg_water_temp": avg_water_temp,
                 "monthly_dives": monthly_dives,
                 "region_dives": region_dives,
@@ -2443,6 +2446,7 @@ def home(request: Request):
 
         total_dives = visible_logs_query.with_entities(func.count(DiveLog.id)).scalar()
         total_dive_time = visible_logs_query.with_entities(func.sum(DiveLog.dive_time)).scalar()
+        total_dive_time_display = format_dive_duration(total_dive_time)
         recent_logs = (
             db.query(DiveLog)
             .options(
@@ -2460,6 +2464,7 @@ def home(request: Request):
                 "request": request,
                 "total_dives": total_dives,
                 "total_dive_time": total_dive_time,
+                "total_dive_time_display": total_dive_time_display,
                 "recent_logs": recent_logs
             }
         )

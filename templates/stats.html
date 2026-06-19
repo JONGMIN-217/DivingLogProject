@@ -130,7 +130,7 @@
 
         <section class="summary-card">
             <div class="summary-label">총 다이빙 시간</div>
-            <div class="summary-value">{{ total_dive_time or 0 }} 분</div>
+            <div class="summary-value">{{ total_dive_time_display }}</div>
         </section>
 
         <section class="summary-card">
@@ -183,7 +183,7 @@
             </tr>
             <tr>
                 <td>총 다이빙 시간</td>
-                <td>{{ total_dive_time or 0 }} 분</td>
+                <td>{{ total_dive_time_display }}</td>
             </tr>
             <tr>
                 <td>평균 수온</td>
