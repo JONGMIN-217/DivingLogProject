@@ -8,70 +8,7 @@
  rel="stylesheet"
  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
 />
-
-<style>
-body{
-    font-family: Arial;
-    margin: 20px;
-}
-
-.navbar{
-    margin-bottom:20px;
-    display:flex;
-    flex-wrap:wrap;
-    gap:8px;
-    align-items:center;
-}
-
-.navbar button{
-    border:1px solid #cbd5e1;
-    background:#ffffff;
-    border-radius:6px;
-    padding:8px 10px;
-    cursor:pointer;
-}
-
-.navbar .admin-button{
-    border-color:#b45309;
-    background:#fff7ed;
-    color:#92400e;
-    font-weight:bold;
-}
-
-.admin-badge{
-    display:inline-block;
-    margin-left:4px;
-    padding:2px 5px;
-    border-radius:999px;
-    background:#b45309;
-    color:#ffffff;
-    font-size:11px;
-    line-height:1;
-}
-
-.nav-user{
-    margin-left:auto;
-}
-
-.flash-message,
-.flash-error{
-    margin:0 0 16px;
-    padding:10px 12px;
-    border-radius:6px;
-}
-
-.flash-message{
-    background:#ecfdf5;
-    border:1px solid #a7f3d0;
-    color:#065f46;
-}
-
-.flash-error{
-    background:#fef2f2;
-    border:1px solid #fecaca;
-    color:#991b1b;
-}
-</style>
+<link rel="stylesheet" href="/static/css/style.css">
 
 {% block head %}{% endblock %}
 
@@ -79,46 +16,110 @@ body{
 
 <body>
 
-<!-- ✅ 공통 네비게이션 -->
-<div class="navbar">
-    <a href="/"><button>홈</button></a>
-    <a href="/map"><button>지도</button></a>
-    <a href="/log/add"><button>로그 추가</button></a>
-    <a href="/logs"><button>전체 로그</button></a>
-    <a href="/stats"><button>통계</button></a>
-    <a href="/friends"><button>친구</button></a>
-    <a href="/trips"><button>투어</button></a>
-    <a href="/import"><button>로그 가져오기</button></a>
-    {% if request.session.get("user_id") %}
-    {% if request.session.get("is_admin") %}
-    <a href="/admin"><button class="admin-button">관리자 대시보드 <span class="admin-badge">관리자</span></button></a>
-    <a href="/admin/divepoints"><button class="admin-button">포인트 관리 <span class="admin-badge">관리자</span></button></a>
-    <a href="/admin/users"><button class="admin-button">사용자 관리 <span class="admin-badge">관리자</span></button></a>
-    <a href="/admin/import"><button class="admin-button">Import 관리 <span class="admin-badge">관리자</span></button></a>
-    <a href="/admin/recalculate-dive-numbers"><button class="admin-button">다이빙 번호 재정렬 <span class="admin-badge">관리자</span></button></a>
-    {% endif %}
-    <span class="nav-user">
-        {{ request.session.get("username") }}님
-        {% if request.session.get("is_admin") %}<span class="admin-badge">관리자</span>{% endif %}
-    </span>
-    <form action="/logout" method="post" style="display:inline;">
-        <button type="submit">로그아웃</button>
-    </form>
-    {% else %}
-    <a href="/login"><button>로그인</button></a>
-    <a href="/register"><button>회원가입</button></a>
-    {% endif %}
+<div class="app-shell">
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <a class="brand-link" href="/">다이빙 로그</a>
+            {% if request.session.get("user_id") %}
+            <div class="nav-user">
+                {{ request.session.get("username") }}님
+                {% if request.session.get("is_admin") %}<span class="admin-badge">관리자</span>{% endif %}
+            </div>
+            {% endif %}
+        </div>
+
+        <nav class="nav-groups" aria-label="주 메뉴">
+            <div class="nav-group">
+                <div class="nav-group-title">로그</div>
+                <a class="nav-link" href="/log/add">로그 추가</a>
+                <a class="nav-link" href="/logs">전체 로그</a>
+                <a class="nav-link" href="/import">로그 가져오기</a>
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-group-title">지도/포인트</div>
+                <a class="nav-link" href="/map">지도 보기</a>
+                {% if request.session.get("is_admin") %}
+                <a class="nav-link admin-link" href="/admin/divepoints">포인트 관리 <span class="admin-badge">관리자</span></a>
+                {% endif %}
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-group-title">커뮤니티</div>
+                <a class="nav-link" href="/friends">친구 관리</a>
+                <a class="nav-link" href="/trips">투어</a>
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-group-title">분석</div>
+                <a class="nav-link" href="/stats">통계</a>
+            </div>
+
+            {% if request.session.get("is_admin") %}
+            <div class="nav-group admin-group">
+                <div class="nav-group-title">관리자</div>
+                <a class="nav-link admin-link" href="/admin">관리자 대시보드 <span class="admin-badge">관리자</span></a>
+                <a class="nav-link admin-link" href="/admin/users">사용자 관리 <span class="admin-badge">관리자</span></a>
+                <a class="nav-link admin-link" href="/admin/import">Import 관리 <span class="admin-badge">관리자</span></a>
+                <a class="nav-link admin-link" href="/admin/recalculate-dive-numbers">다이빙 번호 재정렬 <span class="admin-badge">관리자</span></a>
+            </div>
+            {% endif %}
+        </nav>
+
+        <div class="sidebar-footer">
+            {% if request.session.get("user_id") %}
+            <form action="/logout" method="post">
+                <button class="nav-action" type="submit">로그아웃</button>
+            </form>
+            {% else %}
+            <a class="nav-action" href="/login">로그인</a>
+            <a class="nav-action" href="/register">회원가입</a>
+            {% endif %}
+        </div>
+    </aside>
+
+    <main class="main-content">
+        {% if request.query_params.get("message") %}
+        <div class="flash-message">{{ request.query_params.get("message") }}</div>
+        {% endif %}
+        {% if request.query_params.get("error") %}
+        <div class="flash-error">{{ request.query_params.get("error") }}</div>
+        {% endif %}
+
+        {% block content %}{% endblock %}
+    </main>
 </div>
 
-{% if request.query_params.get("message") %}
-<div class="flash-message">{{ request.query_params.get("message") }}</div>
-{% endif %}
-{% if request.query_params.get("error") %}
-<div class="flash-error">{{ request.query_params.get("error") }}</div>
-{% endif %}
-
-<!-- ✅ 각 페이지 내용 들어가는 자리 -->
-{% block content %}{% endblock %}
+<nav class="mobile-tabbar" aria-label="모바일 메뉴">
+    <a href="/">홈</a>
+    <a href="/logs">로그</a>
+    <a href="/map">지도</a>
+    <a href="/stats">통계</a>
+    <details class="mobile-more">
+        <summary>더보기</summary>
+        <div class="mobile-more-menu">
+            <a href="/log/add">로그 추가</a>
+            <a href="/import">로그 가져오기</a>
+            <a href="/friends">친구 관리</a>
+            <a href="/trips">투어</a>
+            {% if request.session.get("is_admin") %}
+            <a class="admin-link" href="/admin">관리자 대시보드 <span class="admin-badge">관리자</span></a>
+            <a class="admin-link" href="/admin/divepoints">포인트 관리 <span class="admin-badge">관리자</span></a>
+            <a class="admin-link" href="/admin/users">사용자 관리 <span class="admin-badge">관리자</span></a>
+            <a class="admin-link" href="/admin/import">Import 관리 <span class="admin-badge">관리자</span></a>
+            <a class="admin-link" href="/admin/recalculate-dive-numbers">다이빙 번호 재정렬 <span class="admin-badge">관리자</span></a>
+            {% endif %}
+            {% if request.session.get("user_id") %}
+            <form action="/logout" method="post">
+                <button type="submit">로그아웃</button>
+            </form>
+            {% else %}
+            <a href="/login">로그인</a>
+            <a href="/register">회원가입</a>
+            {% endif %}
+        </div>
+    </details>
+</nav>
 
 </body>
 </html>
