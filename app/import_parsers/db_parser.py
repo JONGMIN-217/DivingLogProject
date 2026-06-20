@@ -7,6 +7,7 @@ import sqlite3
 from pathlib import Path
 
 from app.importers.common import ImportDive
+from app.importers.shearwater_profile_parser import parse_shearwater_data_bytes_1
 
 from .base import ImportParser, ImportPreview, preview_from_dives
 from .utils import parse_date_value, parse_float_value, parse_int_value, parse_time_value
@@ -316,6 +317,8 @@ def _candidate_log_tables(connection) -> list[dict[str, object]]:
             score += 3
         if "calculatedvaluesfromsamples" in normalized_columns:
             score += 6
+        if "databytes1" in normalized_columns or "data1" in normalized_columns:
+            score += 4
         if normalized_columns & {"gnssentrylocation", "gnssexitlocation"}:
             score += 2
 
@@ -343,6 +346,9 @@ def _parse_shearwater_dives(connection, original_filename: str, parser_name: str
         "calculated_parse_success_count": 0,
         "calculated_parse_failure_count": 0,
         "calculated_keys": set(),
+        "profile_decompress_success_count": 0,
+        "profile_parse_success_count": 0,
+        "profile_parse_failure_count": 0,
     }
     if not candidates:
         return [], stats
@@ -353,6 +359,9 @@ def _parse_shearwater_dives(connection, original_filename: str, parser_name: str
     stats["calculated_parse_success_count"] = log_data["parse_success_count"]
     stats["calculated_parse_failure_count"] = log_data["parse_failure_count"]
     stats["calculated_keys"] = set(log_data["keys"])
+    stats["profile_decompress_success_count"] = log_data["profile_decompress_success_count"]
+    stats["profile_parse_success_count"] = log_data["profile_parse_success_count"]
+    stats["profile_parse_failure_count"] = log_data["profile_parse_failure_count"]
 
     rows = connection.execute(
         f"SELECT * FROM {_quote_identifier(table['name'])}"
@@ -361,6 +370,7 @@ def _parse_shearwater_dives(connection, original_filename: str, parser_name: str
     for row in rows:
         direct_calculated, direct_warning = _calculated_values_from_row(row)
         matched_calculated, matched_warning = _match_calculated_values(row, mapping, log_data)
+        matched_profile = _match_profile_values(row, mapping, log_data)
         calculated = {**matched_calculated, **direct_calculated}
         calculated_warning = " / ".join(
             warning for warning in (matched_warning, direct_warning) if warning
@@ -377,6 +387,7 @@ def _parse_shearwater_dives(connection, original_filename: str, parser_name: str
                 table["name"],
                 calculated,
                 calculated_warning,
+                matched_profile,
             )
         except Exception:
             logger.exception("Shearwater DB 행 매핑 실패: table=%s", table["name"])
@@ -393,25 +404,41 @@ def _read_log_data_calculated_values(connection) -> dict[str, object]:
         "parse_success_count": 0,
         "parse_failure_count": 0,
         "keys": set(),
+        "profile_decompress_success_count": 0,
+        "profile_parse_success_count": 0,
+        "profile_parse_failure_count": 0,
     }
     by_key: dict[str, dict[str, object]] = {}
     parse_success_count = 0
     parse_failure_count = 0
     keys: set[str] = set()
+    profile_decompress_success_count = 0
+    profile_parse_success_count = 0
+    profile_parse_failure_count = 0
 
     for table_name in _calculated_value_table_names(connection):
         rows = connection.execute(f"SELECT * FROM {_quote_identifier(table_name)}").fetchall()
         for row in rows:
             parsed, warning = _calculated_values_from_row(row)
+            profile_result = _profile_values_from_row(row)
             if parsed:
                 parse_success_count += 1
                 keys.update(parsed.keys())
             elif warning:
                 parse_failure_count += 1
+            if profile_result.get("decompressed"):
+                profile_decompress_success_count += 1
+            if profile_result.get("samples"):
+                profile_parse_success_count += 1
+            elif profile_result.get("warning"):
+                profile_parse_failure_count += 1
 
             entry = {
                 "values": parsed,
                 "warning": warning,
+                "profile_samples": profile_result.get("samples") or [],
+                "profile_warning": profile_result.get("warning") or "",
+                "profile_diagnostic": profile_result.get("diagnostic") or "",
             }
             for key_name in SHEARWATER_LOG_MATCH_KEYS:
                 key_value = _row_value_by_normalized(row, key_name)
@@ -424,6 +451,9 @@ def _read_log_data_calculated_values(connection) -> dict[str, object]:
         "parse_success_count": parse_success_count,
         "parse_failure_count": parse_failure_count,
         "keys": keys,
+        "profile_decompress_success_count": profile_decompress_success_count,
+        "profile_parse_success_count": profile_parse_success_count,
+        "profile_parse_failure_count": profile_parse_failure_count,
     }
 
 
@@ -441,9 +471,72 @@ def _calculated_value_table_names(connection) -> list[str]:
             for row in connection.execute(f"PRAGMA table_info({_quote_identifier(table_name)})").fetchall()
         ]
         normalized_columns = {_normalize_key(column) for column in columns}
-        if "calculatedvaluesfromsamples" in normalized_columns or _normalize_key(table_name) == "logdata":
+        if (
+            "calculatedvaluesfromsamples" in normalized_columns
+            or "databytes1" in normalized_columns
+            or _normalize_key(table_name) == "logdata"
+        ):
             result.append(table_name)
     return result
+
+
+def _profile_values_from_row(row) -> dict[str, object]:
+    value = _row_value_by_normalized(row, "data_bytes_1")
+    if value is None:
+        value = _row_value_by_normalized(row, "dataBytes1")
+    if value is None:
+        value = _row_value_by_normalized(row, "data1")
+    if value is None:
+        return {}
+
+    summary = _summary_values_from_row(row)
+    result = parse_shearwater_data_bytes_1(
+        value,
+        max_depth=summary.get("max_depth"),
+        avg_depth=summary.get("avg_depth"),
+        duration_seconds=summary.get("duration_seconds"),
+    )
+    diagnostic = (
+        f"data_bytes_1 raw {result.raw_length}바이트, payload {result.payload_length}바이트, "
+        f"압축 해제 {'성공' if result.decompressed else '실패'}, "
+        f"해제 후 {result.decompressed_length}바이트, "
+        f"파서 {result.parser or '없음'}, 샘플 {len(result.samples)}개"
+    )
+    return {
+        "samples": result.samples,
+        "warning": result.warning,
+        "diagnostic": diagnostic,
+        "decompressed": result.decompressed,
+    }
+
+
+def _summary_values_from_row(row) -> dict[str, object]:
+    calculated_values, _ = _calculated_values_from_row(row)
+    value = _row_value_by_normalized(row, "data_bytes_3")
+    parsed = {}
+    if value is not None:
+        try:
+            parsed = json.loads(_bytes_or_text(value))
+        except (TypeError, ValueError, UnicodeDecodeError):
+            parsed = {}
+    if not isinstance(parsed, dict):
+        parsed = {}
+    return {
+        "max_depth": parse_float_value(_stringify_value(parsed.get("MaxDepth"))),
+        "avg_depth": (
+            parse_float_value(_stringify_value(calculated_values.get("AverageDepth")))
+            or parse_float_value(_stringify_value(parsed.get("AverageDepth")))
+        ),
+        "duration_seconds": parse_int_value(_stringify_value(parsed.get("DiveTimeInSeconds"))),
+    }
+
+
+def _bytes_or_text(value) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    if isinstance(value, memoryview):
+        return value.tobytes().decode("utf-8")
+    return _stringify_value(value)
 
 
 def _calculated_values_from_row(row) -> tuple[dict[str, object], str]:
@@ -475,6 +568,25 @@ def _match_calculated_values(row, mapping: dict[str, str], log_data: dict[str, o
             entry = by_key[text]
             return entry.get("values") or {}, entry.get("warning") or ""
     return {}, ""
+
+
+def _match_profile_values(row, mapping: dict[str, str], log_data: dict[str, object]) -> dict[str, object]:
+    by_key = log_data.get("by_key") or {}
+    keys = [
+        _row_value(row, mapping.get("external_id")),
+        _row_value(row, mapping.get("file_name")),
+        *(_row_value_by_normalized(row, key_name) for key_name in SHEARWATER_LOG_MATCH_KEYS),
+    ]
+    for key in keys:
+        text = _stringify_value(key).strip()
+        if text and text in by_key:
+            entry = by_key[text]
+            return {
+                "samples": entry.get("profile_samples") or [],
+                "warning": entry.get("profile_warning") or "",
+                "diagnostic": entry.get("profile_diagnostic") or "",
+            }
+    return {}
 
 
 def _map_columns(columns: list[str]) -> tuple[dict[str, str], list[str]]:
@@ -563,12 +675,19 @@ def _row_to_import_dive(
     table_name: str,
     calculated_values: dict[str, object] | None = None,
     calculated_warning: str = "",
+    profile_values: dict[str, object] | None = None,
 ):
     warnings = list(mapping_warnings)
     confidence = {}
     calculated_values = calculated_values or {}
+    profile_values = profile_values or {}
     if calculated_warning:
         warnings.append(calculated_warning)
+    profile_sample_rows = profile_values.get("samples") or []
+    if profile_values.get("warning"):
+        warnings.append(f"Shearwater 수심 프로파일 파싱 실패: {profile_values['warning']}")
+    if profile_values.get("diagnostic"):
+        warnings.append(f"관리자 진단: {profile_values['diagnostic']}")
 
     start_value = _row_value(row, mapping.get("entry_time") or mapping.get("dive_date"))
     end_value = _row_value(row, mapping.get("exit_time"))
@@ -671,6 +790,7 @@ def _row_to_import_dive(
         longitude=longitude,
         site_name=site_name or None,
         profile_samples=profile_samples,
+        profile_sample_rows=profile_sample_rows,
         confidence=confidence,
         warnings=warnings,
         raw={key: _stringify_value(row[key]) for key in row.keys()} | {
@@ -1034,6 +1154,12 @@ def _build_shearwater_diagnostics(
             f"log_data 매칭 성공 {stats.get('log_data_match_count', 0)}개, "
             f"calculated_values_from_samples 파싱 성공 {stats.get('calculated_parse_success_count', 0)}개, "
             f"파싱 실패 {stats.get('calculated_parse_failure_count', 0)}개"
+        )
+        messages.append(
+            "관리자 진단: Shearwater 프로파일 "
+            f"압축 해제 성공 {stats.get('profile_decompress_success_count', 0)}개, "
+            f"샘플 파싱 성공 {stats.get('profile_parse_success_count', 0)}개, "
+            f"샘플 파싱 실패 {stats.get('profile_parse_failure_count', 0)}개"
         )
         messages.append(
             "관리자 진단: calculated_values_from_samples 주요 키: "

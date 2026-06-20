@@ -4,6 +4,15 @@ from pathlib import Path
 
 
 @dataclass
+class ImportProfileSample:
+    elapsed_seconds: int
+    depth: float | None = None
+    temperature: float | None = None
+    pressure: float | None = None
+    source: str | None = None
+
+
+@dataclass
 class DivePointSuggestion:
     point_id: int
     point_name: str
@@ -30,6 +39,7 @@ class ImportDive:
     longitude: float | None = None
     site_name: str | None = None
     profile_samples: str | None = None
+    profile_sample_rows: list[ImportProfileSample] = field(default_factory=list)
     suggested_point_id: int | None = None
     confidence: dict[str, str] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)

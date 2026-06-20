@@ -5,8 +5,8 @@ from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import inspect
 
-from app.importers.common import ImportDive
-from app.models import Area, Country, DiveLog, DivePoint, Region
+from app.importers.common import ImportDive, ImportProfileSample
+from app.models import Area, Country, DiveLog, DivePoint, DiveProfileSample, Region
 from app.services.dive_number_service import recalculate_dive_numbers
 from app.services.import_batch_service import batch_item_to_dive
 
@@ -57,32 +57,32 @@ def save_import_items(db, items: list[dict | ImportDive], user_id: int | None):
                 continue
 
             with db.begin_nested():
-                db.add(
-                    DiveLog(
-                        user_id=user_id,
-                        dive_point_id=point.id,
-                        dive_date=normalized["dive_date"],
-                        entry_time=normalized["entry_time"],
-                        exit_time=normalized["exit_time"],
-                        max_depth=normalized["max_depth"],
-                        avg_depth=normalized["avg_depth"],
-                        dive_time=normalized["dive_time"],
-                        water_temp=normalized["water_temp"],
-                        visibility=normalized["visibility"],
-                        latitude=normalize_float(dive.latitude),
-                        longitude=normalize_float(dive.longitude),
-                        site_name=_safe_text(dive.site_name),
-                        start_pressure=normalized["start_pressure"],
-                        end_pressure=normalized["end_pressure"],
-                        buddy=normalized["buddy"],
-                        note=normalized["note"],
-                        import_source=_safe_text(dive.source),
-                        import_external_id=_safe_text(dive.external_id),
-                        import_source_file_hash=_safe_text(source_file_hash),
-                        profile_samples=normalized["profile_samples"],
-                    )
+                log = DiveLog(
+                    user_id=user_id,
+                    dive_point_id=point.id,
+                    dive_date=normalized["dive_date"],
+                    entry_time=normalized["entry_time"],
+                    exit_time=normalized["exit_time"],
+                    max_depth=normalized["max_depth"],
+                    avg_depth=normalized["avg_depth"],
+                    dive_time=normalized["dive_time"],
+                    water_temp=normalized["water_temp"],
+                    visibility=normalized["visibility"],
+                    latitude=normalize_float(dive.latitude),
+                    longitude=normalize_float(dive.longitude),
+                    site_name=_safe_text(dive.site_name),
+                    start_pressure=normalized["start_pressure"],
+                    end_pressure=normalized["end_pressure"],
+                    buddy=normalized["buddy"],
+                    note=normalized["note"],
+                    import_source=_safe_text(dive.source),
+                    import_external_id=_safe_text(dive.external_id),
+                    import_source_file_hash=_safe_text(source_file_hash),
+                    profile_samples=normalized["profile_samples"],
                 )
+                db.add(log)
                 db.flush()
+                _save_profile_samples(db, log.id, normalized["profile_sample_rows"])
             result["saved_count"] += 1
         except Exception as exc:
             _add_failure(result, item_index, dive, selected_point_id, _human_error(exc))
@@ -112,6 +112,7 @@ def normalize_import_dive(dive: ImportDive):
         "buddy": _safe_text(dive.buddy),
         "note": _safe_text(dive.note),
         "profile_samples": normalize_profile_samples(getattr(dive, "profile_samples", None)),
+        "profile_sample_rows": normalize_profile_sample_rows(dive),
     }
 
 
@@ -213,6 +214,90 @@ def normalize_profile_samples(value):
         return json.dumps(value, ensure_ascii=False)
     except TypeError:
         return None
+
+
+def normalize_profile_sample_rows(dive: ImportDive) -> list[ImportProfileSample]:
+    rows = [
+        row
+        for row in getattr(dive, "profile_sample_rows", [])
+        if isinstance(row, ImportProfileSample)
+    ]
+    if rows:
+        return rows
+
+    value = getattr(dive, "profile_samples", None)
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value) if isinstance(value, str) else value
+    except (TypeError, ValueError):
+        return []
+
+    if isinstance(parsed, dict):
+        raw_rows = parsed.get("samples") or parsed.get("profile") or parsed.get("waypoints") or []
+    elif isinstance(parsed, list):
+        raw_rows = parsed
+    else:
+        raw_rows = []
+
+    result = []
+    for index, row in enumerate(raw_rows):
+        if not isinstance(row, dict):
+            continue
+        elapsed = _first_numeric(row, "elapsed_seconds", "seconds", "time", "minutes", "divetime")
+        depth = _first_numeric(row, "depth", "depth_m", "depthInMeters")
+        temperature = normalize_temperature(_first_numeric(row, "temperature", "temp", "water_temp"))
+        pressure = normalize_float(_first_numeric(row, "pressure", "tank_pressure"))
+        if depth is None:
+            continue
+        result.append(
+            ImportProfileSample(
+                elapsed_seconds=_elapsed_seconds_from_value(elapsed, index),
+                depth=normalize_float(depth),
+                temperature=temperature,
+                pressure=pressure,
+                source=getattr(dive, "source", None) or "Import",
+            )
+        )
+    return result
+
+
+def _save_profile_samples(db, dive_log_id: int, samples: list[ImportProfileSample]):
+    if not samples:
+        return
+    for sample in samples:
+        db.add(
+            DiveProfileSample(
+                dive_log_id=dive_log_id,
+                elapsed_seconds=max(int(sample.elapsed_seconds or 0), 0),
+                depth=normalize_float(sample.depth),
+                temperature=normalize_temperature(sample.temperature),
+                pressure=normalize_float(sample.pressure),
+                source=_safe_text(sample.source),
+            )
+        )
+
+
+def _first_numeric(row: dict, *keys: str):
+    normalized = {
+        "".join(char for char in str(key).lower() if char.isalnum()): value
+        for key, value in row.items()
+    }
+    for key in keys:
+        value = normalized.get("".join(char for char in key.lower() if char.isalnum()))
+        number = _number_from_value(value)
+        if number is not None:
+            return number
+    return None
+
+
+def _elapsed_seconds_from_value(value, fallback_index: int):
+    if value is None:
+        return fallback_index
+    number = float(value)
+    if 0 <= number < 300 and fallback_index > 0 and number <= fallback_index + 1:
+        return int(round(number * 60))
+    return max(int(round(number)), 0)
 
 
 def _parse_time_text(text: str):

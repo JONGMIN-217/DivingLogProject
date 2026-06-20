@@ -342,20 +342,12 @@
 
     <section class="detail-card profile-card">
         <h3>수심 프로파일</h3>
-        {% if depth_profile.samples %}
         <div class="profile-summary">
-            {% if depth_profile.max_sample %}
-            <span class="profile-chip">최대수심 {{ depth_profile.max_sample.depth }} m · {{ depth_profile.max_sample.time }}분</span>
-            {% endif %}
-            {% if depth_profile.avg_depth is not none %}
-            <span class="profile-chip">평균수심 {{ "%.1f"|format(depth_profile.avg_depth) }} m</span>
-            {% endif %}
+            <span class="profile-chip" id="profileMaxDepth">최대수심 {{ log.max_depth if log.max_depth is not none else '-' }}{% if log.max_depth is not none %} m{% endif %}</span>
+            <span class="profile-chip" id="profileAvgDepth">평균수심 {% if log.avg_depth is not none %}{{ "%.1f"|format(log.avg_depth) }} m{% else %}-{% endif %}</span>
         </div>
-        <div id="depthProfileChart" class="depth-profile-chart" aria-label="수심 프로파일 그래프"></div>
+        <div id="depthProfileChart" class="depth-profile-chart" aria-label="수심 프로파일 그래프" data-log-id="{{ log.id }}" data-avg-depth="{{ log.avg_depth if log.avg_depth is not none else '' }}"></div>
         <p id="depthProfileFallback" class="empty-value">수심 그래프를 불러오는 중입니다.</p>
-        {% else %}
-        <p class="empty-value">수심 프로파일 정보 없음</p>
-        {% endif %}
     </section>
 
     <section class="detail-card note-card">
@@ -382,137 +374,78 @@
     </div>
 </div>
 
-{% if depth_profile.samples %}
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/recharts/umd/Recharts.min.js"></script>
 <script>
 (function () {
-    const profileData = {{ depth_profile|tojson }};
     const chartNode = document.getElementById("depthProfileChart");
     const fallbackNode = document.getElementById("depthProfileFallback");
+    const avgDepth = Number(chartNode ? chartNode.dataset.avgDepth : "");
 
-    if (!chartNode || !profileData.samples || profileData.samples.length === 0) {
+    if (!chartNode) {
         return;
     }
 
-    if (!window.React || !window.ReactDOM || !window.Recharts) {
-        if (fallbackNode) {
-            fallbackNode.textContent = "수심 그래프 라이브러리를 불러오지 못했습니다.";
-        }
-        return;
+    function renderSvgDepthProfile(node, samples, averageDepth) {
+        const width = Math.max(node.clientWidth || 720, 320);
+        const height = Math.max(node.clientHeight || 320, 240);
+        const margin = { top: 24, right: 24, bottom: 36, left: 46 };
+        const plotWidth = width - margin.left - margin.right;
+        const plotHeight = height - margin.top - margin.bottom;
+        const maxTime = Math.max(...samples.map(sample => Number(sample.time || 0))) || 1;
+        const maxDepth = Math.max(...samples.map(sample => Number(sample.depth || 0))) || 1;
+        const yMax = Math.max(5, Math.ceil((maxDepth + 2) / 5) * 5);
+        const x = value => margin.left + (Number(value || 0) / maxTime) * plotWidth;
+        const y = value => margin.top + (Number(value || 0) / yMax) * plotHeight;
+        const points = samples.map(sample => `${x(sample.time).toFixed(1)},${y(sample.depth).toFixed(1)}`).join(" ");
+        const maxSample = samples.reduce((current, sample) => Number(sample.depth || 0) > Number(current.depth || 0) ? sample : current, samples[0]);
+        const avgLine = !Number.isNaN(averageDepth) ? `<line x1="${margin.left}" y1="${y(averageDepth)}" x2="${width - margin.right}" y2="${y(averageDepth)}" stroke="#e07a1f" stroke-dasharray="5 5" />` : "";
+        const avgText = !Number.isNaN(averageDepth) ? `<text x="${width - margin.right - 110}" y="${Math.max(y(averageDepth) - 6, 14)}" fill="#9a4f0f" font-size="12">평균수심 ${averageDepth.toFixed(1)}m</text>` : "";
+        const maxPoint = maxSample ? `<circle cx="${x(maxSample.time)}" cy="${y(maxSample.depth)}" r="5" fill="#c9342c" stroke="#fff" stroke-width="2" /><text x="${x(maxSample.time) + 8}" y="${Math.max(y(maxSample.depth) - 8, 14)}" fill="#9f241f" font-size="12">최대수심 ${Number(maxSample.depth).toFixed(1)}m</text>` : "";
+        node.innerHTML = `
+            <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" role="img" aria-label="수심 프로파일 그래프">
+                <rect x="0" y="0" width="${width}" height="${height}" fill="#fff"></rect>
+                <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${height - margin.bottom}" stroke="#cbd5e1"></line>
+                <line x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}" stroke="#cbd5e1"></line>
+                ${[0, 0.25, 0.5, 0.75, 1].map(r => {
+                    const depth = yMax * r;
+                    const yy = y(depth);
+                    return `<line x1="${margin.left}" y1="${yy}" x2="${width - margin.right}" y2="${yy}" stroke="#e5e7eb"></line><text x="8" y="${yy + 4}" fill="#64748b" font-size="12">${depth.toFixed(0)}m</text>`;
+                }).join("")}
+                ${[0, 0.25, 0.5, 0.75, 1].map(r => {
+                    const seconds = maxTime * r;
+                    const xx = x(seconds);
+                    return `<text x="${xx - 12}" y="${height - 12}" fill="#64748b" font-size="12">${(seconds / 60).toFixed(0)}분</text>`;
+                }).join("")}
+                ${avgLine}
+                <polyline points="${points}" fill="none" stroke="#2364d2" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"></polyline>
+                ${avgText}
+                ${maxPoint}
+                <text x="${width / 2 - 32}" y="${height - 2}" fill="#475569" font-size="12">경과 시간</text>
+                <text x="6" y="16" fill="#475569" font-size="12">수심</text>
+            </svg>`;
     }
 
-    const {
-        ResponsiveContainer,
-        LineChart,
-        Line,
-        XAxis,
-        YAxis,
-        CartesianGrid,
-        Tooltip,
-        ReferenceLine,
-        ReferenceDot
-    } = window.Recharts;
-    const h = window.React.createElement;
-    const maxDepth = Math.max.apply(null, profileData.samples.map((sample) => sample.depth));
-    const yMax = Math.max(5, Math.ceil((maxDepth + 2) / 5) * 5);
-
-    function ProfileTooltip(props) {
-        if (!props.active || !props.payload || !props.payload.length) {
-            return null;
-        }
-
-        const depth = props.payload[0].value;
-        return h(
-            "div",
-            {
-                style: {
-                    border: "1px solid #ddd",
-                    borderRadius: "6px",
-                    background: "#fff",
-                    padding: "8px 10px",
-                    boxShadow: "0 3px 10px rgba(0,0,0,0.08)"
+    fetch(`/api/logs/${chartNode.dataset.logId}/profile`)
+        .then((response) => response.ok ? response.json() : [])
+        .then((samples) => {
+            if (!samples || samples.length === 0) {
+                if (fallbackNode) {
+                    fallbackNode.textContent = "수심 프로파일 정보 없음";
+                    fallbackNode.style.display = "";
                 }
-            },
-            h("div", null, "경과 시간: " + Number(props.label).toFixed(1) + "분"),
-            h("div", null, "수심: " + Number(depth).toFixed(1) + " m")
-        );
-    }
-
-    function DepthProfileChart() {
-        const children = [
-            h(CartesianGrid, { key: "grid", strokeDasharray: "3 3", stroke: "#e5e7eb" }),
-            h(XAxis, {
-                key: "x",
-                dataKey: "time",
-                type: "number",
-                domain: ["dataMin", "dataMax"],
-                tickFormatter: (value) => Number(value).toFixed(0) + "분",
-                label: { value: "경과 시간", position: "insideBottom", offset: -2 }
-            }),
-            h(YAxis, {
-                key: "y",
-                reversed: true,
-                domain: [0, yMax],
-                tickFormatter: (value) => value + "m",
-                label: { value: "수심", angle: -90, position: "insideLeft" }
-            }),
-            h(Tooltip, { key: "tooltip", content: h(ProfileTooltip) }),
-            h(Line, {
-                key: "line",
-                type: "monotone",
-                dataKey: "depth",
-                stroke: "#2364d2",
-                strokeWidth: 2,
-                dot: false,
-                isAnimationActive: false
-            })
-        ];
-
-        if (profileData.avg_depth !== null && profileData.avg_depth !== undefined) {
-            children.push(h(ReferenceLine, {
-                key: "avg",
-                y: profileData.avg_depth,
-                stroke: "#e07a1f",
-                strokeDasharray: "5 5",
-                label: {
-                    value: "평균수심 " + Number(profileData.avg_depth).toFixed(1) + "m",
-                    position: "insideTopRight",
-                    fill: "#9a4f0f"
-                }
-            }));
-        }
-
-        if (profileData.max_sample) {
-            children.push(h(ReferenceDot, {
-                key: "max",
-                x: profileData.max_sample.time,
-                y: profileData.max_sample.depth,
-                r: 5,
-                fill: "#c9342c",
-                stroke: "#fff",
-                label: {
-                    value: "최대수심",
-                    position: "top",
-                    fill: "#9f241f"
-                }
-            }));
-        }
-
-        return h(
-            ResponsiveContainer,
-            { width: "100%", height: "100%" },
-            h(LineChart, { data: profileData.samples, margin: { top: 24, right: 28, left: 4, bottom: 16 } }, children)
-        );
-    }
-
-    window.ReactDOM.createRoot(chartNode).render(h(DepthProfileChart));
-    if (fallbackNode) {
-        fallbackNode.style.display = "none";
-    }
+                return;
+            }
+            renderSvgDepthProfile(chartNode, samples, avgDepth);
+            if (fallbackNode) {
+                fallbackNode.style.display = "none";
+            }
+        })
+        .catch(() => {
+            if (fallbackNode) {
+                fallbackNode.textContent = "수심 프로파일을 불러오지 못했습니다.";
+                fallbackNode.style.display = "";
+            }
+        });
 })();
 </script>
-{% endif %}
 
 {% endblock %}

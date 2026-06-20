@@ -116,6 +116,43 @@
     color: #666;
 }
 
+.pagination-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 12px 0;
+}
+
+.pagination-link,
+.pagination-current,
+.pagination-disabled {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    min-height: 34px;
+    box-sizing: border-box;
+    padding: 7px 10px;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    background: #fff;
+    color: #222;
+    text-decoration: none;
+}
+
+.pagination-current {
+    border-color: #2364d2;
+    background: #2364d2;
+    color: #fff;
+    font-weight: 700;
+}
+
+.pagination-disabled {
+    color: #999;
+    background: #f4f4f4;
+}
+
 .error-summary {
     margin: 0 0 10px;
     color: #b42318;
@@ -184,6 +221,12 @@
     margin-top: 10px;
     border-radius: 8px;
     border: 1px solid #e2e8f0;
+}
+
+.detail-profile-chart {
+    width: 100%;
+    height: 220px;
+    margin-top: 8px;
 }
 
 .detail-actions {
@@ -356,6 +399,15 @@
                 </select>
             </div>
 
+            <div class="filter-field">
+                <label for="per_page">페이지당 표시</label>
+                <select id="per_page" name="per_page">
+                    {% for option in pagination.per_page_options %}
+                    <option value="{{ option }}" {% if pagination.per_page == option %}selected{% endif %}>{{ option }}개</option>
+                    {% endfor %}
+                </select>
+            </div>
+
             <div class="filter-actions">
                 <button class="btn btn-primary" type="submit">검색</button>
                 <a class="btn" href="/logs">초기화</a>
@@ -371,7 +423,33 @@
         <button type="button" data-point-type-filter="GHOST" class="{% if filters.point_type == 'GHOST' %}active{% endif %}">유령 로그</button>
     </div>
 
-    <p class="result-summary">총 <span id="visibleLogCount">{{ logs|length }}</span>개 로그</p>
+    <p class="result-summary">
+        총 <span id="visibleLogCount">{{ pagination.total_count }}</span>개 로그
+        {% if pagination.total_count > 0 %}
+        · 현재 페이지 {{ pagination.page }} / {{ pagination.total_pages }}
+        {% endif %}
+    </p>
+    <nav class="pagination-bar" aria-label="로그 페이지 이동">
+        {% if pagination.has_previous %}
+        <a class="pagination-link" href="{{ pagination.previous_url }}">이전</a>
+        {% else %}
+        <span class="pagination-disabled">이전</span>
+        {% endif %}
+
+        {% for page_item in pagination.pages %}
+        {% if page_item.is_current %}
+        <span class="pagination-current">{{ page_item.number }}</span>
+        {% else %}
+        <a class="pagination-link" href="{{ page_item.url }}">{{ page_item.number }}</a>
+        {% endif %}
+        {% endfor %}
+
+        {% if pagination.has_next %}
+        <a class="pagination-link" href="{{ pagination.next_url }}">다음</a>
+        {% else %}
+        <span class="pagination-disabled">다음</span>
+        {% endif %}
+    </nav>
     <div class="bulk-actions">
         <label>
             <input type="checkbox" class="select-all-logs">
@@ -388,7 +466,9 @@
 
     <div class="logs-layout">
     <section class="logs-list-panel">
-    <form id="bulkDeleteForm" action="/logs/delete-selected" method="post"></form>
+    <form id="bulkDeleteForm" action="/logs/delete-selected" method="post">
+        <input type="hidden" name="return_url" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+    </form>
     <div class="logs-table-wrap">
         <table class="logs-table">
             <tr>
@@ -422,6 +502,7 @@
                 data-detail-url="/log/{{ log.id }}"
                 data-edit-url="/log/{{ log.id }}/edit"
                 data-can-edit="{% if request.session.get('is_admin') or log.user_id == request.session.get('user_id') %}1{% else %}0{% endif %}"
+                data-log-id="{{ log.id }}"
                 data-dive-number="Dive #{{ log.dive_number or log.id }}"
                 data-date="{{ log.dive_date }}"
                 data-entry-time="{{ log.entry_time.strftime('%H:%M') if log.entry_time else '-' }}"
@@ -505,6 +586,11 @@
             <div class="detail-value detail-note" id="detailNote">-</div>
             <div class="detail-label">사진</div>
             <div class="detail-value" id="detailPhotoWrap">-</div>
+            <div class="detail-label">수심 프로파일</div>
+            <div class="detail-value">
+                <div id="detailProfileChart" class="detail-profile-chart"></div>
+                <div id="detailProfileFallback" class="empty-value">수심 프로파일 정보 없음</div>
+            </div>
         </div>
         <div class="detail-actions">
             <a class="btn" id="detailViewLink" href="#">상세보기</a>
@@ -553,6 +639,8 @@ const detailFields = {
     photoWrap: document.getElementById("detailPhotoWrap"),
     viewLink: document.getElementById("detailViewLink"),
     editLink: document.getElementById("detailEditLink"),
+    profileChart: document.getElementById("detailProfileChart"),
+    profileFallback: document.getElementById("detailProfileFallback"),
 };
 
 function resetSelect(select, message, disabled){
@@ -667,27 +755,6 @@ selectAllLogControls.forEach(selectAllLogs => {
 
 function applyPointTypeFilter(pointType, updateUrl = true){
     const normalizedType = pointType || "ALL";
-    let count = 0;
-    logRows.forEach(row => {
-        const rowType = row.dataset.pointType || "";
-        const visible = normalizedType === "ALL" || rowType === normalizedType || (normalizedType === "GHOST" && row.dataset.isGhost === "1");
-        row.style.display = visible ? "" : "none";
-        if(!visible){
-            row.querySelectorAll(".log-checkbox").forEach(checkbox => {
-                checkbox.checked = false;
-            });
-        }
-        if(visible){
-            count += 1;
-        }
-    });
-
-    if(visibleLogCount){
-        visibleLogCount.textContent = String(count);
-    }
-    if(clientEmptyRow){
-        clientEmptyRow.style.display = count === 0 ? "" : "none";
-    }
     if(pointTypeInput){
         pointTypeInput.value = normalizedType;
     }
@@ -706,7 +773,8 @@ function applyPointTypeFilter(pointType, updateUrl = true){
         }else{
             url.searchParams.set("point_type", normalizedType);
         }
-        window.history.replaceState({}, "", url.toString());
+        url.searchParams.set("page", "1");
+        window.location.href = url.toString();
     }
 }
 
@@ -763,6 +831,7 @@ function selectLogRow(row){
         if(detailFields.editLink){
             detailFields.editLink.style.display = "none";
         }
+        renderDetailProfile(null);
         return;
     }
     logRows.forEach(logRow => {
@@ -801,6 +870,71 @@ function selectLogRow(row){
             detailFields.photoWrap.textContent = "-";
         }
     }
+    renderDetailProfile(row);
+}
+
+function renderDetailProfile(row){
+    if(!detailFields.profileChart || !detailFields.profileFallback){
+        return;
+    }
+    detailFields.profileChart.innerHTML = "";
+    detailFields.profileFallback.textContent = row ? "수심 그래프를 불러오는 중입니다." : "수심 프로파일 정보 없음";
+    detailFields.profileFallback.style.display = "";
+
+    if(!row || !desktopDetailQuery.matches){
+        return;
+    }
+
+    fetch(`/api/logs/${row.dataset.logId}/profile`)
+        .then(response => response.ok ? response.json() : [])
+        .then(samples => {
+            if(!samples || samples.length === 0){
+                detailFields.profileFallback.textContent = "수심 프로파일 정보 없음";
+                return;
+            }
+            renderSvgDepthProfile(detailFields.profileChart, samples, numberFromText(row.dataset.avgDepth));
+            detailFields.profileFallback.style.display = "none";
+        })
+        .catch(() => {
+            detailFields.profileFallback.textContent = "수심 프로파일을 불러오지 못했습니다.";
+        });
+}
+
+function numberFromText(value){
+    const match = String(value || "").match(/[-+]?\d+(?:\.\d+)?/);
+    return match ? Number(match[0]) : null;
+}
+
+function renderSvgDepthProfile(node, samples, averageDepth){
+    const width = Math.max(node.clientWidth || 360, 280);
+    const height = Math.max(node.clientHeight || 220, 180);
+    const margin = { top: 18, right: 14, bottom: 28, left: 38 };
+    const plotWidth = width - margin.left - margin.right;
+    const plotHeight = height - margin.top - margin.bottom;
+    const maxTime = Math.max(...samples.map(sample => Number(sample.time || 0))) || 1;
+    const maxDepth = Math.max(...samples.map(sample => Number(sample.depth || 0))) || 1;
+    const yMax = Math.max(5, Math.ceil((maxDepth + 2) / 5) * 5);
+    const x = value => margin.left + (Number(value || 0) / maxTime) * plotWidth;
+    const y = value => margin.top + (Number(value || 0) / yMax) * plotHeight;
+    const points = samples.map(sample => `${x(sample.time).toFixed(1)},${y(sample.depth).toFixed(1)}`).join(" ");
+    const maxSample = samples.reduce((current, sample) => Number(sample.depth || 0) > Number(current.depth || 0) ? sample : current, samples[0]);
+    const avgLine = averageDepth !== null && averageDepth !== undefined ? `<line x1="${margin.left}" y1="${y(averageDepth)}" x2="${width - margin.right}" y2="${y(averageDepth)}" stroke="#e07a1f" stroke-dasharray="5 5"></line>` : "";
+    const maxPoint = maxSample ? `<circle cx="${x(maxSample.time)}" cy="${y(maxSample.depth)}" r="4" fill="#c9342c" stroke="#fff" stroke-width="2"></circle>` : "";
+    node.innerHTML = `
+        <svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" role="img" aria-label="수심 프로파일 그래프">
+            <rect x="0" y="0" width="${width}" height="${height}" fill="#fff"></rect>
+            <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${height - margin.bottom}" stroke="#cbd5e1"></line>
+            <line x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}" stroke="#cbd5e1"></line>
+            ${[0, 0.5, 1].map(r => {
+                const depth = yMax * r;
+                const yy = y(depth);
+                return `<line x1="${margin.left}" y1="${yy}" x2="${width - margin.right}" y2="${yy}" stroke="#e5e7eb"></line><text x="4" y="${yy + 4}" fill="#64748b" font-size="11">${depth.toFixed(0)}m</text>`;
+            }).join("")}
+            ${avgLine}
+            <polyline points="${points}" fill="none" stroke="#2364d2" stroke-width="2.3" stroke-linejoin="round" stroke-linecap="round"></polyline>
+            ${maxPoint}
+            <text x="${width - 52}" y="${height - 8}" fill="#64748b" font-size="11">${(maxTime / 60).toFixed(0)}분</text>
+        </svg>`;
 }
 
 function firstVisibleLogRow(){

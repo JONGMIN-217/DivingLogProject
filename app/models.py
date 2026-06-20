@@ -159,3 +159,23 @@ class DiveLog(Base):
     dive_point = relationship("DivePoint", backref="dive_logs")
     user = relationship("User", foreign_keys=[user_id], backref="dive_logs")
     buddy_user = relationship("User", foreign_keys=[buddy_user_id])
+    profile_samples_rel = relationship(
+        "DiveProfileSample",
+        back_populates="dive_log",
+        cascade="all, delete-orphan",
+        order_by="DiveProfileSample.elapsed_seconds",
+    )
+
+
+class DiveProfileSample(Base):
+    __tablename__ = "dive_profile_samples"
+
+    id = Column(Integer, primary_key=True, index=True)
+    dive_log_id = Column(Integer, ForeignKey("dive_logs.id"), nullable=False, index=True)
+    elapsed_seconds = Column(Integer, nullable=False, index=True)
+    depth = Column(Float, nullable=True)
+    temperature = Column(Float, nullable=True)
+    pressure = Column(Float, nullable=True)
+    source = Column(String, nullable=True)
+
+    dive_log = relationship("DiveLog", back_populates="profile_samples_rel")

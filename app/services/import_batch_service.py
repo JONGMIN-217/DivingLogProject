@@ -3,7 +3,7 @@ import uuid
 from datetime import date, time
 from pathlib import Path
 
-from app.importers.common import DivePointSuggestion, ImportDive
+from app.importers.common import DivePointSuggestion, ImportDive, ImportProfileSample
 
 
 def _date_to_text(value: date | None):
@@ -49,6 +49,16 @@ def dive_to_batch_item(dive: ImportDive, index: int):
         "longitude": dive.longitude,
         "site_name": dive.site_name,
         "profile_samples": dive.profile_samples,
+        "profile_sample_rows": [
+            {
+                "elapsed_seconds": sample.elapsed_seconds,
+                "depth": sample.depth,
+                "temperature": sample.temperature,
+                "pressure": sample.pressure,
+                "source": sample.source,
+            }
+            for sample in getattr(dive, "profile_sample_rows", [])
+        ],
         "suggested_point_id": dive.suggested_point_id,
         "selected_point_id": dive.suggested_point_id,
         "confidence": dive.confidence,
@@ -87,6 +97,17 @@ def batch_item_to_dive(item: dict):
         longitude=item.get("longitude"),
         site_name=item.get("site_name"),
         profile_samples=item.get("profile_samples"),
+        profile_sample_rows=[
+            ImportProfileSample(
+                elapsed_seconds=int(sample.get("elapsed_seconds") or 0),
+                depth=sample.get("depth"),
+                temperature=sample.get("temperature"),
+                pressure=sample.get("pressure"),
+                source=sample.get("source"),
+            )
+            for sample in item.get("profile_sample_rows", [])
+            if isinstance(sample, dict)
+        ],
         suggested_point_id=item.get("suggested_point_id"),
         confidence=item.get("confidence") or {},
         warnings=item.get("warnings") or [],

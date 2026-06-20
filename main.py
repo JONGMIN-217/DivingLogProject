@@ -17,6 +17,7 @@ from app.models import (
     Country,
     DivePoint,
     DiveLog,
+    DiveProfileSample,
     DiveTrip,
     Friend,
     Region,
@@ -54,7 +55,7 @@ from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import PlainTextResponse
 import csv
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode
 
 from app.config import settings
 
@@ -240,6 +241,24 @@ def apply_visible_logs(query, user):
 
 def ghost_log_condition():
     return or_(DiveLog.dive_time.is_(None), DiveLog.dive_time == 0)
+
+
+def logs_redirect_url(return_url: str | None = None, **params):
+    path = "/logs"
+    query_params = {}
+    if return_url and return_url.startswith("/logs"):
+        raw_path, _, raw_query = return_url.partition("?")
+        if raw_path == "/logs":
+            query_params = dict(parse_qsl(raw_query, keep_blank_values=True))
+
+    for key, value in params.items():
+        if value is None:
+            query_params.pop(key, None)
+        else:
+            query_params[key] = value
+
+    query_string = urlencode(query_params)
+    return f"{path}?{query_string}" if query_string else path
 
 
 def owned_log_condition(user):
@@ -578,6 +597,70 @@ def depth_profile_context(log: DiveLog):
         "max_sample": max_sample,
         "avg_depth": round(avg_depth, 2) if avg_depth is not None else None,
     }
+
+
+def downsample_profile_samples(samples: list[dict], max_count: int = 300):
+    if len(samples) <= max_count:
+        return samples
+    step = (len(samples) - 1) / (max_count - 1)
+    result = []
+    used_indexes = set()
+    for position in range(max_count):
+        index = round(position * step)
+        if index in used_indexes:
+            continue
+        used_indexes.add(index)
+        result.append(samples[index])
+    return result
+
+
+def profile_sample_payload(db, log: DiveLog):
+    rows = (
+        db.query(DiveProfileSample)
+        .filter(DiveProfileSample.dive_log_id == log.id)
+        .order_by(DiveProfileSample.elapsed_seconds.asc(), DiveProfileSample.id.asc())
+        .all()
+    )
+    samples = [
+        {
+            "time": row.elapsed_seconds,
+            "depth": row.depth,
+            "temperature": row.temperature,
+            "pressure": row.pressure,
+        }
+        for row in rows
+        if row.depth is not None
+    ]
+    if not samples and log.profile_samples:
+        samples = [
+            {
+                "time": int(round(sample["time"] * 60)),
+                "depth": sample["depth"],
+                "temperature": sample.get("temperature"),
+                "pressure": sample.get("pressure"),
+            }
+            for sample in parse_depth_profile_samples(log.profile_samples, log.dive_time)
+            if sample.get("depth") is not None
+        ]
+    return downsample_profile_samples(samples)
+
+
+def create_profile_samples_from_legacy_json(db, log: DiveLog):
+    if not log.profile_samples:
+        return 0
+    if db.query(DiveProfileSample).filter(DiveProfileSample.dive_log_id == log.id).first():
+        return 0
+    samples = parse_depth_profile_samples(log.profile_samples, log.dive_time)
+    for sample in samples:
+        db.add(
+            DiveProfileSample(
+                dive_log_id=log.id,
+                elapsed_seconds=int(round(sample["time"] * 60)),
+                depth=sample["depth"],
+                source="기존 profile_samples 재추출",
+            )
+        )
+    return len(samples)
 
 
 def valid_coordinate(latitude: float | None, longitude: float | None):
@@ -3257,6 +3340,7 @@ def delete_log(request: Request, log_id: int):
 def delete_selected_logs(
     request: Request,
     log_ids: list[int] = Form([]),
+    return_url: str = Form("/logs"),
 ):
     db = SessionLocal()
     try:
@@ -3265,7 +3349,10 @@ def delete_selected_logs(
             return login_required_redirect(request)
 
         if not log_ids:
-            return RedirectResponse(url="/logs?error=삭제할 로그를 선택하세요.", status_code=303)
+            return RedirectResponse(
+                url=logs_redirect_url(return_url, error="삭제할 로그를 선택하세요."),
+                status_code=303,
+            )
 
         logs = (
             editable_log_query(db, current_user)
@@ -3287,7 +3374,7 @@ def delete_selected_logs(
             message += f", 권한 없음 또는 찾을 수 없는 로그 {len(denied_ids)}개"
         remaining_count = editable_log_query(db, current_user).count()
         message += f", 남은 로그 {remaining_count}개"
-        return RedirectResponse(url=f"/logs?{urlencode({'message': message})}", status_code=303)
+        return RedirectResponse(url=logs_redirect_url(return_url, message=message), status_code=303)
     finally:
         db.close()
 
@@ -3296,6 +3383,7 @@ def delete_selected_logs(
 def delete_selected_ghost_logs(
     request: Request,
     log_ids: list[int] = Form([]),
+    return_url: str = Form("/logs?point_type=GHOST"),
 ):
     db = SessionLocal()
     try:
@@ -3304,7 +3392,10 @@ def delete_selected_ghost_logs(
             return login_required_redirect(request)
 
         if not log_ids:
-            return RedirectResponse(url="/logs?point_type=GHOST&error=삭제할 유령 로그를 선택하세요.", status_code=303)
+            return RedirectResponse(
+                url=logs_redirect_url(return_url, point_type="GHOST", error="삭제할 유령 로그를 선택하세요."),
+                status_code=303,
+            )
 
         logs = (
             editable_log_query(db, current_user)
@@ -3330,7 +3421,10 @@ def delete_selected_ghost_logs(
         message = f"유령 로그 삭제 완료: 삭제된 로그 {len(logs)}개, 남은 유령 로그 {remaining_ghost_count}개"
         if denied_count:
             message += f", 삭제 제외 {denied_count}개"
-        return RedirectResponse(url=f"/logs?{urlencode({'point_type': 'GHOST', 'message': message})}", status_code=303)
+        return RedirectResponse(
+            url=logs_redirect_url(return_url, point_type="GHOST", message=message),
+            status_code=303,
+        )
     finally:
         db.close()
 
@@ -3529,6 +3623,55 @@ def log_detail(request: Request, log_id: int):
     finally:
         db.close()
 
+
+@app.get("/api/logs/{log_id}/profile")
+def log_profile_api(request: Request, log_id: int):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        log = (
+            db.query(DiveLog)
+            .filter(DiveLog.id == log_id)
+            .filter(visible_log_condition(current_user))
+            .first()
+        )
+        if not log:
+            return []
+        return profile_sample_payload(db, log)
+    finally:
+        db.close()
+
+
+@app.get("/admin/reextract-profiles")
+def admin_reextract_profiles(request: Request):
+    db = SessionLocal()
+    try:
+        current_user, redirect = admin_required_redirect(request, db)
+        if redirect:
+            return redirect
+
+        logs = (
+            db.query(DiveLog)
+            .filter(DiveLog.profile_samples.isnot(None), DiveLog.profile_samples != "")
+            .all()
+        )
+        created_count = 0
+        skipped_count = 0
+        for log in logs:
+            count = create_profile_samples_from_legacy_json(db, log)
+            if count:
+                created_count += count
+            else:
+                skipped_count += 1
+        db.commit()
+        message = (
+            f"프로파일 데이터 재추출 완료: 생성된 샘플 {created_count}개, "
+            f"재추출 불가 또는 이미 처리된 로그 {skipped_count}개"
+        )
+        return RedirectResponse(url=f"/logs?{urlencode({'message': message})}", status_code=303)
+    finally:
+        db.close()
+
 @app.get("/")
 def home(request: Request):
 
@@ -3628,11 +3771,19 @@ def all_logs(request: Request):
             "dive_time_filter": request.query_params.get("dive_time_filter", "all").strip(),
             "min_dive_time": request.query_params.get("min_dive_time", "").strip(),
             "buddy": request.query_params.get("buddy", "").strip(),
-            "sort": request.query_params.get("sort", "number").strip(),
-            "direction": request.query_params.get("direction", "asc").strip(),
+            "sort": request.query_params.get("sort", "date").strip(),
+            "direction": request.query_params.get("direction", "desc").strip(),
+            "page": request.query_params.get("page", "1").strip(),
+            "per_page": request.query_params.get("per_page", "25").strip(),
         }
         if filters["point_type"] not in ("ALL", "OCEAN", "POOL", "GHOST"):
             filters["point_type"] = "ALL"
+        page = parse_int_filter(filters["page"]) or 1
+        per_page = parse_int_filter(filters["per_page"]) or 25
+        if per_page not in (25, 50, 100):
+            per_page = 25
+        filters["page"] = str(max(page, 1))
+        filters["per_page"] = str(per_page)
         if filters["dive_time_filter"] == "all" and filters["min_dive_time"]:
             filters["dive_time_filter"] = "gt0" if filters["min_dive_time"] == "gt0" else "custom"
         if filters["dive_time_filter"] not in ("all", "gt0", "5", "10", "20", "custom"):
@@ -3676,6 +3827,11 @@ def all_logs(request: Request):
         if point_id_filter:
             query = query.filter(DivePoint.id == point_id_filter)
 
+        if filters["point_type"] in ("OCEAN", "POOL"):
+            query = query.filter(DivePoint.point_type == filters["point_type"])
+        elif filters["point_type"] == "GHOST":
+            query = query.filter(ghost_log_condition())
+
         if filters["dive_time_filter"] == "gt0":
             query = query.filter(DiveLog.dive_time.isnot(None), DiveLog.dive_time > 0)
         elif filters["dive_time_filter"] in ("5", "10", "20"):
@@ -3703,6 +3859,7 @@ def all_logs(request: Request):
         }
         sort_column = sort_columns.get(filters["sort"], DiveLog.dive_date)
         direction = filters["direction"] if filters["direction"] in ("asc", "desc") else "asc"
+        filters["direction"] = direction
         if filters["sort"] == "date":
             order_expressions = [
                 DiveLog.dive_date.asc() if direction == "asc" else DiveLog.dive_date.desc(),
@@ -3714,11 +3871,45 @@ def all_logs(request: Request):
             order_expression = sort_column.asc() if direction == "asc" else sort_column.desc()
             order_expressions = [order_expression, DiveLog.dive_date.asc(), DiveLog.entry_time.asc(), DiveLog.id.asc()]
 
+        total_count = query.count()
+        total_pages = max((total_count + per_page - 1) // per_page, 1)
+        page = min(max(page, 1), total_pages)
+        filters["page"] = str(page)
+        page_window_start = max(1, page - 2)
+        page_window_end = min(total_pages, page_window_start + 4)
+        page_window_start = max(1, page_window_end - 4)
+
+        def page_url(target_page: int, target_per_page: int | None = None):
+            return logs_redirect_url(
+                str(request.url.path) + ("?" + str(request.url.query) if request.url.query else ""),
+                page=str(target_page),
+                per_page=str(target_per_page or per_page),
+                message=None,
+                error=None,
+            )
+
         logs = (
             query
             .order_by(*order_expressions)
+            .offset((page - 1) * per_page)
+            .limit(per_page)
             .all()
         )
+        pagination = {
+            "page": page,
+            "per_page": per_page,
+            "per_page_options": [25, 50, 100],
+            "total_count": total_count,
+            "total_pages": total_pages,
+            "has_previous": page > 1,
+            "has_next": page < total_pages,
+            "previous_url": page_url(page - 1) if page > 1 else "",
+            "next_url": page_url(page + 1) if page < total_pages else "",
+            "pages": [
+                {"number": number, "url": page_url(number), "is_current": number == page}
+                for number in range(page_window_start, page_window_end + 1)
+            ],
+        }
 
         countries = db.query(Country).order_by(Country.name.asc()).all()
         return templates.TemplateResponse(
@@ -3727,6 +3918,7 @@ def all_logs(request: Request):
                 "request": request,
                 "logs": logs,
                 "filters": filters,
+                "pagination": pagination,
                 "countries": countries,
                 "message": request.query_params.get("message"),
                 "error": request.query_params.get("error"),

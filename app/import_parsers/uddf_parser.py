@@ -4,6 +4,8 @@ from datetime import datetime
 from pathlib import Path
 from xml.etree import ElementTree
 
+from app.importers.common import ImportProfileSample
+
 from .base import ImportDive, ImportParser, ImportPreview, preview_from_dives
 from .utils import parse_date_value, parse_float_value, parse_time_value
 
@@ -105,7 +107,8 @@ def _parse_dive(dive_element, site_map: dict[str, dict[str, object]], original_f
         warnings,
     )
     depth_samples = _waypoint_numbers(dive_element, "depth")
-    profile_samples = _profile_samples_from_waypoints(waypoint_times, depth_samples)
+    profile_sample_rows = _profile_samples_from_waypoints(dive_element)
+    profile_samples = _profile_samples_json(profile_sample_rows)
     if max_depth is None and depth_samples:
         max_depth = max(depth_samples)
         confidence["최대수심"] = "샘플"
@@ -157,6 +160,7 @@ def _parse_dive(dive_element, site_map: dict[str, dict[str, object]], original_f
         longitude=longitude,
         site_name=site_name if site_name and not _looks_like_auto_id(site_name) else None,
         profile_samples=profile_samples,
+        profile_sample_rows=profile_sample_rows,
         confidence=confidence,
         warnings=warnings,
         raw=raw,
@@ -302,20 +306,49 @@ def _waypoint_numbers(element, *names: str) -> list[float]:
     return values
 
 
-def _profile_samples_from_waypoints(times: list[float], depths: list[float]) -> str | None:
-    if not depths:
+def _profile_samples_json(samples: list[ImportProfileSample]) -> str | None:
+    if not samples:
         return None
+    payload = []
+    for sample in samples:
+        payload.append(
+            {
+                "seconds": sample.elapsed_seconds,
+                "depth": sample.depth,
+                "temperature": sample.temperature,
+                "pressure": sample.pressure,
+            }
+        )
+    return json.dumps({"samples": payload}, ensure_ascii=False)
 
+
+def _profile_samples_from_waypoints(element) -> list[ImportProfileSample]:
     samples = []
-    for index, depth in enumerate(depths):
-        sample = {"depth": round(depth, 2)}
-        if index < len(times):
-            sample["time"] = round(times[index], 2)
-        else:
-            sample["minutes"] = index
-        samples.append(sample)
+    for index, waypoint in enumerate(element.iter()):
+        if _local_name(waypoint.tag).lower() != "waypoint":
+            continue
 
-    return json.dumps({"samples": samples}, ensure_ascii=False)
+        depth = _normalize_depth(_first_any_text(waypoint, "depth"), [])
+        temperature = _normalize_temperature(_first_any_text(waypoint, "temperature"), [], [])
+        elapsed_seconds = _waypoint_elapsed_seconds(_first_any_text(waypoint, "divetime"), index)
+        if depth is None and temperature is None:
+            continue
+        samples.append(
+            ImportProfileSample(
+                elapsed_seconds=elapsed_seconds,
+                depth=depth,
+                temperature=temperature,
+                source="UDDF waypoint",
+            )
+        )
+    return samples
+
+
+def _waypoint_elapsed_seconds(value: str | None, fallback_index: int) -> int:
+    number = parse_float_value(value) if value else None
+    if number is None:
+        return fallback_index
+    return max(int(round(number)), 0)
 
 
 def _first_waypoint_coordinate(element, *names: str) -> float | None:
