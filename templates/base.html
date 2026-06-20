@@ -33,6 +33,7 @@
                 <div class="nav-group-title">로그</div>
                 <a class="nav-link" href="/log/add">로그 추가</a>
                 <a class="nav-link" href="/logs">전체 로그</a>
+                <a class="nav-link" href="/logs/review-needed">검토 필요 로그</a>
                 <a class="nav-link" href="/import">로그 가져오기</a>
             </div>
 
@@ -41,6 +42,9 @@
                 <a class="nav-link" href="/map">지도 보기</a>
                 {% if request.session.get("is_admin") %}
                 <a class="nav-link admin-link" href="/admin/divepoints">포인트 관리 <span class="admin-badge">관리자</span></a>
+                <a class="nav-link admin-link" href="/admin/points/merge">포인트 병합 <span class="admin-badge">관리자</span></a>
+                <a class="nav-link admin-link" href="/admin/points/candidates">포인트 후보 검토 <span class="admin-badge">관리자</span></a>
+                <a class="nav-link admin-link" href="/admin/points/from-logs">로그 기반 포인트 등록 <span class="admin-badge">관리자</span></a>
                 {% endif %}
             </div>
 
@@ -99,12 +103,16 @@
         <summary>더보기</summary>
         <div class="mobile-more-menu">
             <a href="/log/add">로그 추가</a>
+            <a href="/logs/review-needed">검토 필요 로그</a>
             <a href="/import">로그 가져오기</a>
             <a href="/friends">친구 관리</a>
             <a href="/trips">투어</a>
             {% if request.session.get("is_admin") %}
             <a class="admin-link" href="/admin">관리자 대시보드 <span class="admin-badge">관리자</span></a>
             <a class="admin-link" href="/admin/divepoints">포인트 관리 <span class="admin-badge">관리자</span></a>
+            <a class="admin-link" href="/admin/points/merge">포인트 병합 <span class="admin-badge">관리자</span></a>
+            <a class="admin-link" href="/admin/points/candidates">포인트 후보 검토 <span class="admin-badge">관리자</span></a>
+            <a class="admin-link" href="/admin/points/from-logs">로그 기반 포인트 등록 <span class="admin-badge">관리자</span></a>
             <a class="admin-link" href="/admin/users">사용자 관리 <span class="admin-badge">관리자</span></a>
             <a class="admin-link" href="/admin/import">Import 관리 <span class="admin-badge">관리자</span></a>
             <a class="admin-link" href="/admin/recalculate-dive-numbers">다이빙 번호 재정렬 <span class="admin-badge">관리자</span></a>

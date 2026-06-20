@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block head %}
+<style>
+.admin-log-point-page{
+    max-width:1200px;
+}
+
+.page-header{
+    margin-bottom:18px;
+}
+
+.toolbar{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-bottom:14px;
+}
+
+.toolbar a{
+    display:inline-block;
+    padding:8px 10px;
+    border:1px solid #cbd5e1;
+    border-radius:6px;
+    color:#111827;
+    background:#ffffff;
+    text-decoration:none;
+}
+
+.toolbar a.active{
+    border-color:#b45309;
+    background:#fff7ed;
+    color:#92400e;
+    font-weight:bold;
+}
+
+.log-point-table-wrap{
+    overflow-x:auto;
+}
+
+.log-point-table{
+    width:100%;
+    border-collapse:collapse;
+    background:#ffffff;
+}
+
+.log-point-table th,
+.log-point-table td{
+    border:1px solid #e2e8f0;
+    padding:8px;
+    text-align:left;
+    white-space:nowrap;
+}
+
+.log-point-table th{
+    background:#f8fafc;
+}
+
+.status-badge{
+    display:inline-block;
+    padding:2px 6px;
+    border-radius:999px;
+    background:#e0f2fe;
+    color:#075985;
+    font-size:12px;
+}
+
+.warning-badge{
+    background:#fff7ed;
+    color:#92400e;
+}
+
+.primary-link{
+    display:inline-block;
+    padding:6px 8px;
+    border-radius:6px;
+    background:#2563eb;
+    color:#ffffff;
+    text-decoration:none;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="admin-log-point-page">
+    <div class="page-header">
+        <h2>로그 기반 포인트 등록 <span class="admin-badge">관리자</span></h2>
+        <p>GPS 정보가 있거나 포인트가 미확정인 로그를 바탕으로 새 다이빙 포인트를 생성합니다.</p>
+    </div>
+
+    {% if error %}
+    <div class="flash-error">{{ error }}</div>
+    {% endif %}
+    {% if message %}
+    <div class="flash-message">{{ message }}</div>
+    {% endif %}
+
+    <div class="toolbar">
+        <a class="{% if view != 'all' %}active{% endif %}" href="/admin/points/from-logs">후보 로그만 보기</a>
+        <a class="{% if view == 'all' %}active{% endif %}" href="/admin/points/from-logs?view=all">전체 보기</a>
+        <a href="/admin/divepoints">포인트 관리로 이동</a>
+    </div>
+
+    <div class="log-point-table-wrap">
+        <table class="log-point-table">
+            <tr>
+                <th>Dive 번호</th>
+                <th>날짜</th>
+                <th>포인트명</th>
+                <th>Site Name</th>
+                <th>위도</th>
+                <th>경도</th>
+                <th>국가</th>
+                <th>지역</th>
+                <th>세부지역</th>
+                <th>상태</th>
+                <th>작업</th>
+            </tr>
+            {% for row in rows %}
+            {% set log = row.log %}
+            <tr>
+                <td>Dive #{{ log.dive_number or '-' }}</td>
+                <td>{{ log.dive_date }}</td>
+                <td>{{ row.point.name if row.point else '-' }}</td>
+                <td>{{ log.site_name if log.site_name else '-' }}</td>
+                <td>{{ "%.6f"|format(row.latitude) if row.latitude is not none else '-' }}</td>
+                <td>{{ "%.6f"|format(row.longitude) if row.longitude is not none else '-' }}</td>
+                <td>{{ row.country or '-' }}</td>
+                <td>{{ row.region or '-' }}</td>
+                <td>{{ row.area or '-' }}</td>
+                <td>
+                    {% if row.has_gps %}<span class="status-badge">GPS 있음</span>{% endif %}
+                    {% if row.unconfirmed %}<span class="status-badge warning-badge">포인트 미확정</span>{% endif %}
+                </td>
+                <td>
+                    {% if row.has_gps %}
+                    <a class="primary-link" href="/admin/points/from-logs/{{ log.id }}/new">포인트 생성</a>
+                    {% else %}
+                    GPS 필요
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="11">표시할 로그가 없습니다.</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+{% endblock %}

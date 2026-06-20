@@ -31,6 +31,8 @@ def get_divepoints(area_id: int | None = None):
                 "region_id": point.area.region_id if point.area else None,
                 "latitude": point.latitude,
                 "longitude": point.longitude,
+                "point_type": point.point_type or "OCEAN",
+                "point_type_label": "수영장" if point.point_type == "POOL" else "해양",
                 "log_count": log_count,
                 "latest_dive_date": latest_dive_date,
             }

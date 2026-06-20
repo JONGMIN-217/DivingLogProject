@@ -3,7 +3,7 @@
 {% block head %}
 <style>
 .logs-page {
-    max-width: 1120px;
+    max-width: 1500px;
 }
 
 .filter-panel {
@@ -48,6 +48,32 @@
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+}
+
+.type-filter {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 14px;
+    padding: 4px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #fff;
+}
+
+.type-filter button {
+    padding: 8px 12px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #334155;
+    cursor: pointer;
+}
+
+.type-filter button.active {
+    background: #2364d2;
+    color: #fff;
+    font-weight: 700;
 }
 
 .btn {
@@ -99,6 +125,65 @@
     overflow-x: auto;
 }
 
+.logs-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.8fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.logs-list-panel,
+.log-detail-panel {
+    min-width: 0;
+}
+
+.log-detail-panel {
+    position: sticky;
+    top: 18px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #fff;
+    padding: 16px;
+}
+
+.log-detail-panel h3 {
+    margin: 0 0 12px;
+}
+
+.detail-grid {
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr);
+    gap: 8px 10px;
+}
+
+.detail-label {
+    color: #64748b;
+    font-size: 14px;
+}
+
+.detail-value {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.detail-note {
+    white-space: pre-wrap;
+}
+
+.detail-photo {
+    max-width: 100%;
+    margin-top: 10px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+}
+
+.detail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+}
+
 .logs-table {
     width: 100%;
     border-collapse: collapse;
@@ -118,6 +203,14 @@
     background: #f6f7f9;
 }
 
+.log-row {
+    cursor: pointer;
+}
+
+.log-row.is-selected {
+    background: #eff6ff;
+}
+
 .logs-table td.actions {
     display: flex;
     gap: 8px;
@@ -130,6 +223,20 @@
 .empty-row {
     color: #777;
     text-align: center;
+}
+
+@media (max-width: 900px) {
+    .logs-page {
+        max-width: none;
+    }
+
+    .logs-layout {
+        display: block;
+    }
+
+    .log-detail-panel {
+        display: none;
+    }
 }
 </style>
 {% endblock %}
@@ -147,6 +254,7 @@
     {% endif %}
 
     <form class="filter-panel" action="/logs" method="get">
+        <input type="hidden" id="pointTypeInput" name="point_type" value="{{ filters.point_type }}">
         <div class="filter-grid">
             <div class="filter-field">
                 <label for="dive_date">날짜</label>
@@ -202,6 +310,23 @@
             </div>
 
             <div class="filter-field">
+                <label for="dive_time_filter">다이브타임</label>
+                <select id="dive_time_filter" name="dive_time_filter">
+                    <option value="all" {% if filters.dive_time_filter == "all" %}selected{% endif %}>전체</option>
+                    <option value="gt0" {% if filters.dive_time_filter == "gt0" %}selected{% endif %}>0분 제외</option>
+                    <option value="5" {% if filters.dive_time_filter == "5" %}selected{% endif %}>5분 이상</option>
+                    <option value="10" {% if filters.dive_time_filter == "10" %}selected{% endif %}>10분 이상</option>
+                    <option value="20" {% if filters.dive_time_filter == "20" %}selected{% endif %}>20분 이상</option>
+                    <option value="custom" {% if filters.dive_time_filter == "custom" %}selected{% endif %}>직접 입력</option>
+                </select>
+            </div>
+
+            <div class="filter-field" id="customDiveTimeField">
+                <label for="min_dive_time">최소 다이브타임(분)</label>
+                <input type="number" id="min_dive_time" name="min_dive_time" min="0" step="1" value="{{ filters.min_dive_time if filters.dive_time_filter == 'custom' else '' }}" placeholder="예: 15">
+            </div>
+
+            <div class="filter-field">
                 <label for="sort">정렬 기준</label>
                 <select id="sort" name="sort">
                     <option value="number" {% if filters.sort in ["number", "id"] %}selected{% endif %}>번호</option>
@@ -229,7 +354,13 @@
         </div>
     </form>
 
-    <p class="result-summary">총 {{ logs|length }}개 로그</p>
+    <div class="type-filter" aria-label="로그 유형 필터">
+        <button type="button" data-point-type-filter="ALL" class="{% if filters.point_type == 'ALL' %}active{% endif %}">전체</button>
+        <button type="button" data-point-type-filter="OCEAN" class="{% if filters.point_type == 'OCEAN' %}active{% endif %}">해양</button>
+        <button type="button" data-point-type-filter="POOL" class="{% if filters.point_type == 'POOL' %}active{% endif %}">수영장</button>
+    </div>
+
+    <p class="result-summary">총 <span id="visibleLogCount">{{ logs|length }}</span>개 로그</p>
     <div class="bulk-actions">
         <label>
             <input type="checkbox" class="select-all-logs">
@@ -242,6 +373,8 @@
         {% endif %}
     </div>
 
+    <div class="logs-layout">
+    <section class="logs-list-panel">
     <form id="bulkDeleteForm" action="/logs/delete-selected" method="post"></form>
     <div class="logs-table-wrap">
         <table class="logs-table">
@@ -253,6 +386,7 @@
                 <th>지역</th>
                 <th>세부지역</th>
                 <th>포인트</th>
+                <th>유형</th>
                 <th>버디</th>
                 <th>최대수심</th>
                 <th>입수</th>
@@ -266,7 +400,24 @@
             {% set area = point.area if point else none %}
             {% set region = area.region if area else none %}
             {% set country = region.country if region else none %}
-            <tr>
+            <tr class="log-row"
+                data-point-type="{{ point.point_type if point else '' }}"
+                data-detail-url="/log/{{ log.id }}"
+                data-edit-url="/log/{{ log.id }}/edit"
+                data-can-edit="{% if request.session.get('is_admin') or log.user_id == request.session.get('user_id') %}1{% else %}0{% endif %}"
+                data-dive-number="Dive #{{ log.dive_number or log.id }}"
+                data-date="{{ log.dive_date }}"
+                data-entry-time="{{ log.entry_time.strftime('%H:%M') if log.entry_time else '-' }}"
+                data-exit-time="{{ log.exit_time.strftime('%H:%M') if log.exit_time else '-' }}"
+                data-dive-time="{{ log.dive_time if log.dive_time is not none else '-' }}{% if log.dive_time is not none %} 분{% endif %}"
+                data-max-depth="{{ log.max_depth if log.max_depth is not none else '-' }}{% if log.max_depth is not none %} m{% endif %}"
+                data-avg-depth="{{ log.avg_depth if log.avg_depth is not none else '-' }}{% if log.avg_depth is not none %} m{% endif %}"
+                data-water-temp="{{ log.water_temp if log.water_temp is not none else '-' }}{% if log.water_temp is not none %} ℃{% endif %}"
+                data-visibility="{{ log.visibility if log.visibility is not none else '-' }}"
+                data-point-name="{{ point.name if point else '-' }}"
+                data-buddy="{{ log.buddy if log.buddy else '-' }}"
+                data-note="{{ log.note if log.note else '-' }}"
+                data-photo-url="{% if log.image_path %}/{{ log.image_path }}{% endif %}">
                 <td>
                     {% if request.session.get("is_admin") or log.user_id == request.session.get("user_id") %}
                     <input class="log-checkbox" form="bulkDeleteForm" type="checkbox" name="log_ids" value="{{ log.id }}">
@@ -278,13 +429,14 @@
                 <td>{{ region.name if region else '-' }}</td>
                 <td>{{ area.name if area else '-' }}</td>
                 <td>{{ point.name if point else '-' }}</td>
+                <td>{{ '수영장' if point and point.point_type == 'POOL' else '해양' if point else '-' }}</td>
                 <td>{{ log.buddy if log.buddy else '-' }}</td>
                 <td>{{ log.max_depth if log.max_depth is not none else '-' }}{% if log.max_depth is not none %} m{% endif %}</td>
                 <td>{{ log.entry_time.strftime('%H:%M') if log.entry_time else '-' }}</td>
                 <td>{{ log.exit_time.strftime('%H:%M') if log.exit_time else '-' }}</td>
                 <td>{{ log.dive_time if log.dive_time is not none else '-' }}{% if log.dive_time is not none %} 분{% endif %}</td>
                 <td class="actions">
-                    {% if log.user_id == request.session.get("user_id") %}
+                    {% if request.session.get("is_admin") or log.user_id == request.session.get("user_id") %}
                     <a class="btn" href="/log/{{ log.id }}/edit">수정</a>
                     <form action="/log/{{ log.id }}/delete" method="post" onsubmit="return confirm('이 로그를 삭제하시겠습니까?');">
                         <button class="btn btn-danger" type="submit">삭제</button>
@@ -296,10 +448,49 @@
             </tr>
             {% else %}
             <tr>
-                <td class="empty-row" colspan="13">조건에 맞는 로그가 없습니다.</td>
+                <td class="empty-row" colspan="14">조건에 맞는 로그가 없습니다.</td>
             </tr>
             {% endfor %}
+            <tr id="clientEmptyRow" style="display:none;">
+                <td class="empty-row" colspan="14">조건에 맞는 로그가 없습니다.</td>
+            </tr>
         </table>
+    </div>
+    </section>
+
+    <aside class="log-detail-panel" aria-live="polite">
+        <h3 id="detailDiveNumber">선택된 로그</h3>
+        <div class="detail-grid">
+            <div class="detail-label">날짜</div>
+            <div class="detail-value" id="detailDate">-</div>
+            <div class="detail-label">입수시각</div>
+            <div class="detail-value" id="detailEntryTime">-</div>
+            <div class="detail-label">출수시각</div>
+            <div class="detail-value" id="detailExitTime">-</div>
+            <div class="detail-label">다이브타임</div>
+            <div class="detail-value" id="detailDiveTime">-</div>
+            <div class="detail-label">최대수심</div>
+            <div class="detail-value" id="detailMaxDepth">-</div>
+            <div class="detail-label">평균수심</div>
+            <div class="detail-value" id="detailAvgDepth">-</div>
+            <div class="detail-label">수온</div>
+            <div class="detail-value" id="detailWaterTemp">-</div>
+            <div class="detail-label">시야</div>
+            <div class="detail-value" id="detailVisibility">-</div>
+            <div class="detail-label">포인트</div>
+            <div class="detail-value" id="detailPoint">-</div>
+            <div class="detail-label">버디</div>
+            <div class="detail-value" id="detailBuddy">-</div>
+            <div class="detail-label">메모</div>
+            <div class="detail-value detail-note" id="detailNote">-</div>
+            <div class="detail-label">사진</div>
+            <div class="detail-value" id="detailPhotoWrap">-</div>
+        </div>
+        <div class="detail-actions">
+            <a class="btn" id="detailViewLink" href="#">상세보기</a>
+            <a class="btn" id="detailEditLink" href="#" style="display:none;">수정</a>
+        </div>
+    </aside>
     </div>
 </div>
 
@@ -315,6 +506,32 @@ const areaSelect = document.getElementById("area_id");
 const pointSelect = document.getElementById("point_id");
 const selectAllLogControls = Array.from(document.querySelectorAll(".select-all-logs"));
 const logCheckboxes = Array.from(document.querySelectorAll(".log-checkbox"));
+const pointTypeInput = document.getElementById("pointTypeInput");
+const diveTimeFilterSelect = document.getElementById("dive_time_filter");
+const minDiveTimeInput = document.getElementById("min_dive_time");
+const customDiveTimeField = document.getElementById("customDiveTimeField");
+const typeFilterButtons = Array.from(document.querySelectorAll("[data-point-type-filter]"));
+const logRows = Array.from(document.querySelectorAll(".log-row"));
+const visibleLogCount = document.getElementById("visibleLogCount");
+const clientEmptyRow = document.getElementById("clientEmptyRow");
+const desktopDetailQuery = window.matchMedia("(min-width: 901px)");
+const detailFields = {
+    diveNumber: document.getElementById("detailDiveNumber"),
+    date: document.getElementById("detailDate"),
+    entryTime: document.getElementById("detailEntryTime"),
+    exitTime: document.getElementById("detailExitTime"),
+    diveTime: document.getElementById("detailDiveTime"),
+    maxDepth: document.getElementById("detailMaxDepth"),
+    avgDepth: document.getElementById("detailAvgDepth"),
+    waterTemp: document.getElementById("detailWaterTemp"),
+    visibility: document.getElementById("detailVisibility"),
+    point: document.getElementById("detailPoint"),
+    buddy: document.getElementById("detailBuddy"),
+    note: document.getElementById("detailNote"),
+    photoWrap: document.getElementById("detailPhotoWrap"),
+    viewLink: document.getElementById("detailViewLink"),
+    editLink: document.getElementById("detailEditLink"),
+};
 
 function resetSelect(select, message, disabled){
     select.innerHTML = "";
@@ -415,13 +632,189 @@ if(selectedCountryId){
 selectAllLogControls.forEach(selectAllLogs => {
     selectAllLogs.addEventListener("change", function(){
         logCheckboxes.forEach(checkbox => {
-            checkbox.checked = selectAllLogs.checked;
+            const row = checkbox.closest(".log-row");
+            if(!row || row.style.display !== "none"){
+                checkbox.checked = selectAllLogs.checked;
+            }
         });
         selectAllLogControls.forEach(control => {
             control.checked = selectAllLogs.checked;
         });
     });
 });
+
+function applyPointTypeFilter(pointType, updateUrl = true){
+    const normalizedType = pointType || "ALL";
+    let count = 0;
+    logRows.forEach(row => {
+        const rowType = row.dataset.pointType || "";
+        const visible = normalizedType === "ALL" || rowType === normalizedType;
+        row.style.display = visible ? "" : "none";
+        if(!visible){
+            row.querySelectorAll(".log-checkbox").forEach(checkbox => {
+                checkbox.checked = false;
+            });
+        }
+        if(visible){
+            count += 1;
+        }
+    });
+
+    if(visibleLogCount){
+        visibleLogCount.textContent = String(count);
+    }
+    if(clientEmptyRow){
+        clientEmptyRow.style.display = count === 0 ? "" : "none";
+    }
+    if(pointTypeInput){
+        pointTypeInput.value = normalizedType;
+    }
+    typeFilterButtons.forEach(button => {
+        button.classList.toggle("active", button.dataset.pointTypeFilter === normalizedType);
+    });
+    selectAllLogControls.forEach(control => {
+        control.checked = false;
+    });
+    selectFirstVisibleLog();
+
+    if(updateUrl){
+        const url = new URL(window.location.href);
+        if(normalizedType === "ALL"){
+            url.searchParams.delete("point_type");
+        }else{
+            url.searchParams.set("point_type", normalizedType);
+        }
+        window.history.replaceState({}, "", url.toString());
+    }
+}
+
+typeFilterButtons.forEach(button => {
+    button.addEventListener("click", () => {
+        applyPointTypeFilter(button.dataset.pointTypeFilter);
+    });
+});
+
+applyPointTypeFilter(pointTypeInput ? pointTypeInput.value : "ALL", false);
+
+function setDetailText(element, value){
+    if(element){
+        element.textContent = value || "-";
+    }
+}
+
+function selectLogRow(row){
+    if(!row){
+        logRows.forEach(logRow => {
+            logRow.classList.remove("is-selected");
+        });
+        setDetailText(detailFields.diveNumber, "선택된 로그 없음");
+        [
+            detailFields.date,
+            detailFields.entryTime,
+            detailFields.exitTime,
+            detailFields.diveTime,
+            detailFields.maxDepth,
+            detailFields.avgDepth,
+            detailFields.waterTemp,
+            detailFields.visibility,
+            detailFields.point,
+            detailFields.buddy,
+            detailFields.note,
+        ].forEach(element => setDetailText(element, "-"));
+        if(detailFields.photoWrap){
+            detailFields.photoWrap.textContent = "-";
+        }
+        if(detailFields.viewLink){
+            detailFields.viewLink.href = "#";
+        }
+        if(detailFields.editLink){
+            detailFields.editLink.style.display = "none";
+        }
+        return;
+    }
+    logRows.forEach(logRow => {
+        logRow.classList.toggle("is-selected", logRow === row);
+    });
+
+    setDetailText(detailFields.diveNumber, row.dataset.diveNumber);
+    setDetailText(detailFields.date, row.dataset.date);
+    setDetailText(detailFields.entryTime, row.dataset.entryTime);
+    setDetailText(detailFields.exitTime, row.dataset.exitTime);
+    setDetailText(detailFields.diveTime, row.dataset.diveTime);
+    setDetailText(detailFields.maxDepth, row.dataset.maxDepth);
+    setDetailText(detailFields.avgDepth, row.dataset.avgDepth);
+    setDetailText(detailFields.waterTemp, row.dataset.waterTemp);
+    setDetailText(detailFields.visibility, row.dataset.visibility);
+    setDetailText(detailFields.point, row.dataset.pointName);
+    setDetailText(detailFields.buddy, row.dataset.buddy);
+    setDetailText(detailFields.note, row.dataset.note);
+
+    if(detailFields.viewLink){
+        detailFields.viewLink.href = row.dataset.detailUrl || "#";
+    }
+    if(detailFields.editLink){
+        detailFields.editLink.href = row.dataset.editUrl || "#";
+        detailFields.editLink.style.display = row.dataset.canEdit === "1" ? "" : "none";
+    }
+    if(detailFields.photoWrap){
+        detailFields.photoWrap.innerHTML = "";
+        if(row.dataset.photoUrl){
+            const image = document.createElement("img");
+            image.className = "detail-photo";
+            image.src = row.dataset.photoUrl;
+            image.alt = "다이빙 로그 사진";
+            detailFields.photoWrap.appendChild(image);
+        }else{
+            detailFields.photoWrap.textContent = "-";
+        }
+    }
+}
+
+function firstVisibleLogRow(){
+    return logRows.find(row => row.style.display !== "none");
+}
+
+function selectFirstVisibleLog(){
+    const selectedRow = logRows.find(row => row.classList.contains("is-selected") && row.style.display !== "none");
+    selectLogRow(selectedRow || firstVisibleLogRow());
+}
+
+logRows.forEach(row => {
+    row.addEventListener("click", event => {
+        if(event.target.closest("button, input, form, label, .actions")){
+            return;
+        }
+        if(!desktopDetailQuery.matches){
+            window.location.href = row.dataset.detailUrl;
+            return;
+        }
+        event.preventDefault();
+        selectLogRow(row);
+    });
+});
+
+function syncDiveTimeFilter(){
+    if(!diveTimeFilterSelect || !minDiveTimeInput || !customDiveTimeField){
+        return;
+    }
+
+    const filterValue = diveTimeFilterSelect.value;
+    const isCustom = filterValue === "custom";
+    customDiveTimeField.style.display = isCustom ? "" : "none";
+
+    if(filterValue === "all"){
+        minDiveTimeInput.value = "";
+    }else if(filterValue === "gt0"){
+        minDiveTimeInput.value = "gt0";
+    }else if(["5", "10", "20"].includes(filterValue)){
+        minDiveTimeInput.value = filterValue;
+    }
+}
+
+if(diveTimeFilterSelect){
+    diveTimeFilterSelect.addEventListener("change", syncDiveTimeFilter);
+    syncDiveTimeFilter();
+}
 
 function confirmSelectedLogs(){
     const selectedCount = logCheckboxes.filter(checkbox => checkbox.checked).length;

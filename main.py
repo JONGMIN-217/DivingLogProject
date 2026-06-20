@@ -399,6 +399,25 @@ def valid_coordinate(latitude: float | None, longitude: float | None):
     )
 
 
+POINT_TYPE_LABELS = {
+    "OCEAN": "해양",
+    "POOL": "수영장",
+}
+
+
+def normalize_point_type(value: str | None):
+    point_type = (value or "OCEAN").strip().upper()
+    return point_type if point_type in POINT_TYPE_LABELS else "OCEAN"
+
+
+def infer_point_type_from_name(point_name: str | None):
+    normalized_name = (point_name or "").casefold()
+    pool_keywords = ("k26", "딥스테이션", "pool", "swimming pool")
+    if any(keyword.casefold() in normalized_name for keyword in pool_keywords):
+        return "POOL"
+    return "OCEAN"
+
+
 def get_or_create_dive_point(
     db,
     country_name: str,
@@ -408,6 +427,7 @@ def get_or_create_dive_point(
     latitude: float,
     longitude: float,
     memo: str | None = None,
+    point_type: str | None = "OCEAN",
 ):
     country_name = country_name.strip()
     region_name = region_name.strip()
@@ -453,6 +473,7 @@ def get_or_create_dive_point(
         point.latitude = latitude
         point.longitude = longitude
         point.memo = memo.strip() if memo else None
+        point.point_type = normalize_point_type(point_type)
         return point, False
 
     point = DivePoint(
@@ -460,6 +481,7 @@ def get_or_create_dive_point(
         area_id=area.id,
         latitude=latitude,
         longitude=longitude,
+        point_type=normalize_point_type(point_type),
         memo=memo.strip() if memo else None,
     )
     db.add(point)
@@ -480,6 +502,13 @@ def admin_divepoints_url(**params):
         return "/admin/divepoints"
 
     return f"/admin/divepoints?{urlencode(params)}"
+
+
+def admin_points_from_logs_url(**params):
+    if not params:
+        return "/admin/points/from-logs"
+
+    return f"/admin/points/from-logs?{urlencode(params)}"
 
 
 DIVEPOINT_GPS_CSV_COLUMNS = ("country", "region", "area", "point_name", "latitude", "longitude", "memo")
@@ -561,6 +590,309 @@ def distance_km(lat1: float, lon1: float, lat2: float, lon2: float):
         + cos(radians(lat1)) * cos(radians(lat2)) * sin(delta_lon / 2) ** 2
     )
     return 2 * radius_km * asin(sqrt(a))
+
+
+def log_effective_coordinates(log: DiveLog):
+    latitude = getattr(log, "latitude", None)
+    longitude = getattr(log, "longitude", None)
+    if valid_coordinate(latitude, longitude):
+        return latitude, longitude
+
+    point = getattr(log, "dive_point", None)
+    if point and valid_coordinate(point.latitude, point.longitude):
+        return point.latitude, point.longitude
+
+    return None, None
+
+
+def is_unconfirmed_point(point: DivePoint | None):
+    if not point:
+        return True
+
+    area = point.area
+    region = area.region if area else None
+    country = region.country if region else None
+    names = {
+        point.name,
+        area.name if area else "",
+        region.name if region else "",
+        country.name if country else "",
+    }
+    return "미확정" in names or point.name == "미확정 포인트"
+
+
+def point_duplicate_warnings(db, point_name: str, latitude: float, longitude: float):
+    warnings = []
+    same_name_points = (
+        db.query(DivePoint)
+        .filter(func.lower(DivePoint.name) == point_name.strip().lower())
+        .all()
+    )
+    for point in same_name_points:
+        warnings.append(f"동일한 이름의 포인트가 있습니다: {point.name} (ID {point.id})")
+
+    nearby_points = (
+        db.query(DivePoint)
+        .filter(DivePoint.latitude.isnot(None), DivePoint.longitude.isnot(None))
+        .all()
+    )
+    for point in nearby_points:
+        distance = distance_km(latitude, longitude, point.latitude, point.longitude)
+        if distance <= 0.05:
+            warnings.append(f"50m 이내에 기존 포인트가 있습니다: {point.name} ({int(round(distance * 1000))}m)")
+
+    return warnings
+
+
+def nearby_logs_for_point(db, latitude: float, longitude: float, exclude_log_id: int | None = None):
+    logs = (
+        db.query(DiveLog)
+        .options(joinedload(DiveLog.dive_point))
+        .all()
+    )
+    nearby_logs = []
+    for log in logs:
+        if exclude_log_id is not None and log.id == exclude_log_id:
+            continue
+        log_latitude, log_longitude = log_effective_coordinates(log)
+        if not valid_coordinate(log_latitude, log_longitude):
+            continue
+        distance = distance_km(latitude, longitude, log_latitude, log_longitude)
+        if distance <= 0.1:
+            nearby_logs.append((log, distance))
+    return sorted(nearby_logs, key=lambda item: (item[1], item[0].dive_date, item[0].id))
+
+
+def default_point_name_from_log(log: DiveLog):
+    return (
+        (getattr(log, "site_name", None) or "").strip()
+        or (log.dive_point.name if log.dive_point and not is_unconfirmed_point(log.dive_point) else "")
+        or (log.import_source or "").strip()
+        or f"Dive {log.dive_number or log.id}"
+    )
+
+
+def point_candidate_groups_from_logs(db):
+    logs = (
+        db.query(DiveLog)
+        .options(
+            joinedload(DiveLog.dive_point)
+            .joinedload(DivePoint.area)
+            .joinedload(Area.region)
+            .joinedload(Region.country)
+        )
+        .order_by(DiveLog.dive_date.asc(), DiveLog.entry_time.asc(), DiveLog.id.asc())
+        .all()
+    )
+    groups: list[dict[str, object]] = []
+    for log in logs:
+        latitude, longitude = log_effective_coordinates(log)
+        if not valid_coordinate(latitude, longitude):
+            continue
+
+        matched_group = None
+        for group in groups:
+            distance = distance_km(latitude, longitude, group["avg_latitude"], group["avg_longitude"])
+            if distance <= 0.1:
+                matched_group = group
+                break
+
+        if not matched_group:
+            matched_group = {
+                "logs": [],
+                "avg_latitude": latitude,
+                "avg_longitude": longitude,
+                "site_names": {},
+            }
+            groups.append(matched_group)
+
+        matched_group["logs"].append(log)
+        site_name = (getattr(log, "site_name", None) or "").strip()
+        if not site_name and log.dive_point and not is_unconfirmed_point(log.dive_point):
+            site_name = log.dive_point.name
+        if site_name:
+            matched_group["site_names"][site_name] = matched_group["site_names"].get(site_name, 0) + 1
+
+        count = len(matched_group["logs"])
+        matched_group["avg_latitude"] = (
+            (matched_group["avg_latitude"] * (count - 1)) + latitude
+        ) / count
+        matched_group["avg_longitude"] = (
+            (matched_group["avg_longitude"] * (count - 1)) + longitude
+        ) / count
+
+    candidates = []
+    for index, group in enumerate(groups, start=1):
+        if len(group["logs"]) < 2:
+            continue
+        representative_site_name = _representative_site_name(group["site_names"])
+        representative_log = group["logs"][0]
+        default_country, default_region, default_area = _default_area_names_from_logs(group["logs"])
+        point_name = representative_site_name or default_point_name_from_log(representative_log)
+        candidates.append(
+            {
+                "index": index,
+                "title": f"{representative_site_name or '포인트'} 후보",
+                "representative_site_name": representative_site_name or "-",
+                "point_name": point_name,
+                "point_type": infer_point_type_from_name(point_name),
+                "log_count": len(group["logs"]),
+                "avg_latitude": group["avg_latitude"],
+                "avg_longitude": group["avg_longitude"],
+                "logs": group["logs"],
+                "log_ids": [log.id for log in group["logs"]],
+                "country_name": default_country or "미확정",
+                "region_name": default_region or "미확정",
+                "area_name": default_area or "미확정",
+                "memo": f"GPS 100m 이내 로그 {len(group['logs'])}개에서 생성",
+            }
+        )
+    return sorted(candidates, key=lambda item: (-item["log_count"], item["title"]))
+
+
+def _representative_site_name(site_names: dict[str, int]):
+    if not site_names:
+        return ""
+    return sorted(site_names.items(), key=lambda item: (-item[1], item[0]))[0][0]
+
+
+def _default_area_names_from_logs(logs: list[DiveLog]):
+    for log in logs:
+        point = log.dive_point
+        if not point or is_unconfirmed_point(point):
+            continue
+        area = point.area
+        region = area.region if area else None
+        country = region.country if region else None
+        return (
+            country.name if country else "",
+            region.name if region else "",
+            area.name if area else "",
+        )
+    return "", "", ""
+
+
+def nearest_point_within_meters(db, latitude: float, longitude: float, meters: int):
+    nearest_point = None
+    nearest_distance = None
+    points = (
+        db.query(DivePoint)
+        .filter(DivePoint.latitude.isnot(None), DivePoint.longitude.isnot(None))
+        .all()
+    )
+    for point in points:
+        distance = distance_km(latitude, longitude, point.latitude, point.longitude)
+        if distance <= meters / 1000 and (nearest_distance is None or distance < nearest_distance):
+            nearest_point = point
+            nearest_distance = distance
+    return nearest_point, nearest_distance
+
+
+def point_log_counts(db):
+    return {
+        point_id: log_count
+        for point_id, log_count in (
+            db.query(DiveLog.dive_point_id, func.count(DiveLog.id))
+            .filter(DiveLog.dive_point_id.isnot(None))
+            .group_by(DiveLog.dive_point_id)
+            .all()
+        )
+    }
+
+
+def close_point_merge_candidates(points: list[DivePoint], log_counts: dict[int, int]):
+    candidates = []
+    for index, point in enumerate(points):
+        if not valid_coordinate(point.latitude, point.longitude):
+            continue
+        for other in points[index + 1:]:
+            if not valid_coordinate(other.latitude, other.longitude):
+                continue
+            distance = distance_km(point.latitude, point.longitude, other.latitude, other.longitude)
+            if distance > 0.1:
+                continue
+            representative = point
+            if log_counts.get(other.id, 0) > log_counts.get(point.id, 0):
+                representative = other
+            candidates.append(
+                {
+                    "points": [point, other],
+                    "representative": representative,
+                    "distance_m": int(round(distance * 1000)),
+                    "log_count": log_counts.get(point.id, 0) + log_counts.get(other.id, 0),
+                }
+            )
+    return sorted(candidates, key=lambda item: (item["distance_m"], -item["log_count"]))
+
+
+def point_display_path(point: DivePoint):
+    area = point.area
+    region = area.region if area else None
+    country = region.country if region else None
+    return " / ".join(
+        value for value in (
+            country.name if country else "",
+            region.name if region else "",
+            area.name if area else "",
+            point.name,
+        )
+        if value
+    )
+
+
+def review_reason_rows(logs: list[DiveLog]):
+    duplicate_reasons = duplicate_review_reasons(logs)
+    rows = []
+    for log in logs:
+        reasons = []
+        if log.dive_time is None or log.dive_time == 0:
+            reasons.append("다이브타임 없음 또는 0분")
+        if log.max_depth is None or log.max_depth == 0:
+            reasons.append("최대수심 없음 또는 0m")
+        if is_unconfirmed_point(log.dive_point):
+            reasons.append("포인트 미확정")
+        if log.water_temp is not None and (log.water_temp < 0 or log.water_temp > 40):
+            reasons.append("수온 비정상")
+        reasons.extend(duplicate_reasons.get(log.id, []))
+        if reasons:
+            rows.append({"log": log, "reasons": reasons})
+    return rows
+
+
+def duplicate_review_reasons(logs: list[DiveLog]):
+    reasons_by_log_id: dict[int, list[str]] = {}
+    for index, log in enumerate(logs):
+        for other in logs[index + 1:]:
+            if _logs_are_duplicate_candidates(log, other):
+                reason = f"중복 가능 로그: Dive #{other.dive_number or other.id}"
+                other_reason = f"중복 가능 로그: Dive #{log.dive_number or log.id}"
+                reasons_by_log_id.setdefault(log.id, []).append(reason)
+                reasons_by_log_id.setdefault(other.id, []).append(other_reason)
+    return reasons_by_log_id
+
+
+def _logs_are_duplicate_candidates(left: DiveLog, right: DiveLog):
+    if left.dive_date != right.dive_date:
+        return False
+    if not _minutes_within(left.entry_time, right.entry_time, 2):
+        return False
+    if not _numbers_within(left.dive_time, right.dive_time, 1):
+        return False
+    if not _numbers_within(left.max_depth, right.max_depth, 0.2):
+        return False
+    return True
+
+
+def _minutes_within(left, right, tolerance: int):
+    if left is None or right is None:
+        return False
+    return abs((left.hour * 60 + left.minute) - (right.hour * 60 + right.minute)) <= tolerance
+
+
+def _numbers_within(left, right, tolerance: float):
+    if left is None or right is None:
+        return False
+    return abs(float(left) - float(right)) <= tolerance
 
 
 def import_raw_value(raw: dict[str, str], *names: str):
@@ -824,6 +1156,9 @@ def ensure_dive_log_time_columns():
         "user_id": "INTEGER",
         "buddy_user_id": "INTEGER",
         "dive_number": "INTEGER",
+        "latitude": "FLOAT",
+        "longitude": "FLOAT",
+        "site_name": "VARCHAR",
         "import_source": "VARCHAR",
         "import_external_id": "VARCHAR",
         "import_source_file_hash": "VARCHAR",
@@ -883,6 +1218,9 @@ def ensure_dive_point_columns():
     with engine.begin() as connection:
         if "memo" not in existing_columns:
             connection.execute(text("ALTER TABLE dive_points ADD COLUMN memo VARCHAR"))
+        if "point_type" not in existing_columns:
+            connection.execute(text("ALTER TABLE dive_points ADD COLUMN point_type VARCHAR NOT NULL DEFAULT 'OCEAN'"))
+        connection.execute(text("UPDATE dive_points SET point_type = 'OCEAN' WHERE point_type IS NULL OR point_type = ''"))
 
 
 def ensure_marine_weather_columns():
@@ -1542,6 +1880,292 @@ def delete_user(request: Request, user_id: int):
         db.close()
 
 
+@app.get("/admin/points/candidates")
+def admin_point_candidates(request: Request):
+    db = SessionLocal()
+    try:
+        current_user, redirect = admin_required_redirect(request, db)
+        if redirect:
+            return redirect
+
+        groups = point_candidate_groups_from_logs(db)
+        return templates.TemplateResponse(
+            "admin_point_candidates.html",
+            {
+                "request": request,
+                "groups": groups,
+                "message": request.query_params.get("message"),
+                "error": request.query_params.get("error"),
+            },
+        )
+    finally:
+        db.close()
+
+
+@app.post("/admin/points/candidates/create")
+def create_point_from_candidate_group(
+    request: Request,
+    log_ids: list[int] = Form(...),
+    country_name: str = Form(...),
+    region_name: str = Form(...),
+    area_name: str = Form(...),
+    point_name: str = Form(...),
+    point_type: str = Form("OCEAN"),
+    latitude: str = Form(...),
+    longitude: str = Form(...),
+    memo: str = Form(""),
+):
+    db = SessionLocal()
+    try:
+        current_user, redirect = admin_required_redirect(request, db)
+        if redirect:
+            return redirect
+
+        latitude_value = parse_float_value(latitude)
+        longitude_value = parse_float_value(longitude)
+        required_values = [country_name.strip(), region_name.strip(), area_name.strip(), point_name.strip()]
+        if not log_ids or not all(required_values) or not valid_coordinate(latitude_value, longitude_value):
+            return RedirectResponse(
+                url="/admin/points/candidates?error=포인트 후보 값을 확인하세요.",
+                status_code=303,
+            )
+
+        logs = db.query(DiveLog).filter(DiveLog.id.in_(log_ids)).all()
+        if not logs:
+            return RedirectResponse(
+                url="/admin/points/candidates?error=연결할 로그를 찾을 수 없습니다.",
+                status_code=303,
+            )
+
+        existing_point, existing_distance = nearest_point_within_meters(db, latitude_value, longitude_value, 50)
+        if existing_point:
+            point = existing_point
+            created = False
+            if not point.memo and memo.strip():
+                point.memo = memo.strip()
+        else:
+            point, created = get_or_create_dive_point(
+                db,
+                country_name,
+                region_name,
+                area_name,
+                point_name,
+                latitude_value,
+                longitude_value,
+                memo,
+                point_type,
+            )
+
+        linked_count = 0
+        for log in logs:
+            log_latitude, log_longitude = log_effective_coordinates(log)
+            if not valid_coordinate(log_latitude, log_longitude):
+                continue
+            if distance_km(latitude_value, longitude_value, log_latitude, log_longitude) <= 0.1:
+                log.dive_point_id = point.id
+                linked_count += 1
+
+        db.commit()
+
+        if existing_point:
+            message = f"50m 이내 기존 포인트 '{point.name}'에 후보 로그 {linked_count}개를 연결했습니다."
+        else:
+            action_text = "생성" if created else "업데이트"
+            message = f"포인트 {action_text} 완료: {point.name}, 후보 로그 {linked_count}개 연결"
+        return RedirectResponse(url=f"/point/{point.id}/logs?{urlencode({'message': message})}", status_code=303)
+    finally:
+        db.close()
+
+
+@app.get("/admin/points/from-logs")
+def admin_points_from_logs(request: Request):
+    db = SessionLocal()
+    try:
+        current_user, redirect = admin_required_redirect(request, db)
+        if redirect:
+            return redirect
+
+        view = request.query_params.get("view", "candidates")
+        logs = (
+            db.query(DiveLog)
+            .options(
+                joinedload(DiveLog.dive_point)
+                .joinedload(DivePoint.area)
+                .joinedload(Area.region)
+                .joinedload(Region.country)
+            )
+            .order_by(DiveLog.dive_number.asc(), DiveLog.dive_date.asc(), DiveLog.id.asc())
+            .all()
+        )
+
+        rows = []
+        for log in logs:
+            point = log.dive_point
+            latitude, longitude = log_effective_coordinates(log)
+            has_gps = valid_coordinate(latitude, longitude)
+            unconfirmed = is_unconfirmed_point(point)
+            if view != "all" and not (has_gps or unconfirmed):
+                continue
+
+            area = point.area if point else None
+            region = area.region if area else None
+            country = region.country if region else None
+            rows.append(
+                {
+                    "log": log,
+                    "point": point,
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "country": country.name if country else "",
+                    "region": region.name if region else "",
+                    "area": area.name if area else "",
+                    "has_gps": has_gps,
+                    "unconfirmed": unconfirmed,
+                }
+            )
+
+        return templates.TemplateResponse(
+            "admin_points_from_logs.html",
+            {
+                "request": request,
+                "rows": rows,
+                "view": view,
+                "message": request.query_params.get("message"),
+                "error": request.query_params.get("error"),
+            },
+        )
+    finally:
+        db.close()
+
+
+@app.get("/admin/points/from-logs/{log_id}/new")
+def new_point_from_log(request: Request, log_id: int):
+    db = SessionLocal()
+    try:
+        current_user, redirect = admin_required_redirect(request, db)
+        if redirect:
+            return redirect
+
+        log = (
+            db.query(DiveLog)
+            .options(
+                joinedload(DiveLog.dive_point)
+                .joinedload(DivePoint.area)
+                .joinedload(Area.region)
+                .joinedload(Region.country)
+            )
+            .filter(DiveLog.id == log_id)
+            .first()
+        )
+        if not log:
+            return RedirectResponse(url=admin_points_from_logs_url(error="로그를 찾을 수 없습니다."), status_code=303)
+
+        latitude, longitude = log_effective_coordinates(log)
+        if not valid_coordinate(latitude, longitude):
+            return RedirectResponse(url=admin_points_from_logs_url(error="GPS 정보가 없어 포인트를 생성할 수 없습니다."), status_code=303)
+
+        point = log.dive_point
+        area = point.area if point and not is_unconfirmed_point(point) else None
+        region = area.region if area else None
+        country = region.country if region else None
+        point_name = default_point_name_from_log(log)
+        duplicate_warnings = point_duplicate_warnings(db, point_name, latitude, longitude)
+        nearby_logs = nearby_logs_for_point(db, latitude, longitude, exclude_log_id=log.id)
+
+        return templates.TemplateResponse(
+            "admin_point_from_log_form.html",
+            {
+                "request": request,
+                "log": log,
+                "latitude": latitude,
+                "longitude": longitude,
+                "country_name": country.name if country else "",
+                "region_name": region.name if region else "",
+                "area_name": area.name if area else "",
+                "point_name": point_name,
+                "point_type": infer_point_type_from_name(point_name),
+                "memo": log.note or "",
+                "duplicate_warnings": duplicate_warnings,
+                "nearby_logs": nearby_logs,
+                "error": request.query_params.get("error"),
+            },
+        )
+    finally:
+        db.close()
+
+
+@app.post("/admin/points/from-logs/{log_id}")
+def create_point_from_log(
+    request: Request,
+    log_id: int,
+    country_name: str = Form(...),
+    region_name: str = Form(...),
+    area_name: str = Form(...),
+    point_name: str = Form(...),
+    point_type: str = Form("OCEAN"),
+    latitude: str = Form(...),
+    longitude: str = Form(...),
+    memo: str = Form(""),
+    link_current_log: str | None = Form(None),
+    link_nearby_logs: str | None = Form(None),
+    confirm_duplicates: str | None = Form(None),
+):
+    db = SessionLocal()
+    try:
+        current_user, redirect = admin_required_redirect(request, db)
+        if redirect:
+            return redirect
+
+        log = db.query(DiveLog).filter(DiveLog.id == log_id).first()
+        if not log:
+            return RedirectResponse(url=admin_points_from_logs_url(error="로그를 찾을 수 없습니다."), status_code=303)
+
+        latitude_value = parse_float_value(latitude)
+        longitude_value = parse_float_value(longitude)
+        required_values = [country_name.strip(), region_name.strip(), area_name.strip(), point_name.strip()]
+        if not all(required_values) or not valid_coordinate(latitude_value, longitude_value):
+            return RedirectResponse(
+                url=f"/admin/points/from-logs/{log_id}/new?{urlencode({'error': '입력값을 확인하세요.'})}",
+                status_code=303,
+            )
+
+        duplicate_warnings = point_duplicate_warnings(db, point_name, latitude_value, longitude_value)
+        if duplicate_warnings and not confirm_duplicates:
+            return RedirectResponse(
+                url=f"/admin/points/from-logs/{log_id}/new?{urlencode({'error': '중복 경고를 확인한 뒤 다시 저장하세요.'})}",
+                status_code=303,
+            )
+
+        point, created = get_or_create_dive_point(
+            db,
+            country_name,
+            region_name,
+            area_name,
+            point_name,
+            latitude_value,
+            longitude_value,
+            memo,
+            point_type,
+        )
+
+        linked_count = 0
+        if link_current_log:
+            log.dive_point_id = point.id
+            linked_count += 1
+
+        if link_nearby_logs:
+            for nearby_log, _distance in nearby_logs_for_point(db, latitude_value, longitude_value, exclude_log_id=log.id):
+                nearby_log.dive_point_id = point.id
+                linked_count += 1
+
+        db.commit()
+        action_text = "생성" if created else "업데이트"
+        message = f"포인트 {action_text} 완료: {point.name}, 연결된 로그 {linked_count}개"
+        return RedirectResponse(url=f"/point/{point.id}/logs?{urlencode({'message': message})}", status_code=303)
+    finally:
+        db.close()
+
+
 @app.get("/admin/divepoints")
 def admin_divepoints(request: Request):
     db = SessionLocal()
@@ -1575,6 +2199,145 @@ def admin_divepoints(request: Request):
         db.close()
 
 
+@app.get("/admin/points/merge")
+def admin_point_merge(request: Request):
+    db = SessionLocal()
+    try:
+        current_user, redirect = admin_required_redirect(request, db)
+        if redirect:
+            return redirect
+
+        points = (
+            db.query(DivePoint)
+            .options(
+                joinedload(DivePoint.area)
+                .joinedload(Area.region)
+                .joinedload(Region.country)
+            )
+            .order_by(DivePoint.name.asc(), DivePoint.id.asc())
+            .all()
+        )
+        log_counts = point_log_counts(db)
+        candidates = close_point_merge_candidates(points, log_counts)
+
+        return templates.TemplateResponse(
+            "admin_point_merge.html",
+            {
+                "request": request,
+                "points": points,
+                "log_counts": log_counts,
+                "candidates": candidates,
+                "error": request.query_params.get("error"),
+                "message": request.query_params.get("message"),
+            },
+        )
+    finally:
+        db.close()
+
+
+@app.post("/admin/points/merge/preview")
+def preview_point_merge(
+    request: Request,
+    point_ids: list[int] = Form(...),
+    representative_point_id: int = Form(...),
+):
+    db = SessionLocal()
+    try:
+        current_user, redirect = admin_required_redirect(request, db)
+        if redirect:
+            return redirect
+
+        selected_ids = sorted(set(point_ids))
+        if len(selected_ids) < 2 or representative_point_id not in selected_ids:
+            return RedirectResponse(
+                url="/admin/points/merge?error=병합할 포인트 2개 이상과 대표 포인트를 선택하세요.",
+                status_code=303,
+            )
+
+        points = (
+            db.query(DivePoint)
+            .options(
+                joinedload(DivePoint.area)
+                .joinedload(Area.region)
+                .joinedload(Region.country)
+            )
+            .filter(DivePoint.id.in_(selected_ids))
+            .all()
+        )
+        if len(points) != len(selected_ids):
+            return RedirectResponse(url="/admin/points/merge?error=선택한 포인트를 찾을 수 없습니다.", status_code=303)
+
+        representative = next((point for point in points if point.id == representative_point_id), None)
+        affected_log_count = (
+            db.query(func.count(DiveLog.id))
+            .filter(DiveLog.dive_point_id.in_(selected_ids))
+            .scalar()
+            or 0
+        )
+        merge_log_count = (
+            db.query(func.count(DiveLog.id))
+            .filter(DiveLog.dive_point_id.in_([point_id for point_id in selected_ids if point_id != representative_point_id]))
+            .scalar()
+            or 0
+        )
+
+        return templates.TemplateResponse(
+            "admin_point_merge_preview.html",
+            {
+                "request": request,
+                "points": points,
+                "representative": representative,
+                "selected_ids": selected_ids,
+                "affected_log_count": affected_log_count,
+                "merge_log_count": merge_log_count,
+            },
+        )
+    finally:
+        db.close()
+
+
+@app.post("/admin/points/merge/confirm")
+def confirm_point_merge(
+    request: Request,
+    point_ids: list[int] = Form(...),
+    representative_point_id: int = Form(...),
+):
+    db = SessionLocal()
+    try:
+        current_user, redirect = admin_required_redirect(request, db)
+        if redirect:
+            return redirect
+
+        selected_ids = sorted(set(point_ids))
+        merge_ids = [point_id for point_id in selected_ids if point_id != representative_point_id]
+        if len(selected_ids) < 2 or not merge_ids:
+            return RedirectResponse(url="/admin/points/merge?error=병합할 포인트를 다시 선택하세요.", status_code=303)
+
+        representative = db.query(DivePoint).filter(DivePoint.id == representative_point_id).first()
+        merge_points = db.query(DivePoint).filter(DivePoint.id.in_(merge_ids)).all()
+        if not representative or len(merge_points) != len(merge_ids):
+            return RedirectResponse(url="/admin/points/merge?error=선택한 포인트를 찾을 수 없습니다.", status_code=303)
+
+        moved_count = (
+            db.query(func.count(DiveLog.id))
+            .filter(DiveLog.dive_point_id.in_(merge_ids))
+            .scalar()
+            or 0
+        )
+        db.query(DiveLog).filter(DiveLog.dive_point_id.in_(merge_ids)).update(
+            {DiveLog.dive_point_id: representative_point_id},
+            synchronize_session=False,
+        )
+        for point in merge_points:
+            db.delete(point)
+        db.commit()
+
+        message = f"포인트 병합 완료: 대표 포인트 '{representative.name}', 이동된 로그 {moved_count}개, 삭제된 중복 포인트 {len(merge_points)}개"
+        return RedirectResponse(url=admin_divepoints_url(message=message), status_code=303)
+    finally:
+        db.close()
+
+
 @app.post("/admin/divepoints")
 def create_admin_divepoint(
     request: Request,
@@ -1582,6 +2345,7 @@ def create_admin_divepoint(
     region_name: str = Form(...),
     area_name: str = Form(...),
     point_name: str = Form(...),
+    point_type: str = Form("OCEAN"),
     latitude: str = Form(...),
     longitude: str = Form(...),
 ):
@@ -1605,6 +2369,8 @@ def create_admin_divepoint(
             point_name,
             latitude_value,
             longitude_value,
+            None,
+            point_type,
         )
         db.commit()
 
@@ -2401,17 +3167,31 @@ def stats_page(request: Request):
     try:
         current_user = get_current_user(request, db)
         visible_logs_query = db.query(DiveLog).filter(visible_log_condition(current_user))
+        ocean_logs_query = (
+            db.query(DiveLog)
+            .join(DivePoint, DiveLog.dive_point_id == DivePoint.id)
+            .filter(visible_log_condition(current_user))
+            .filter(DivePoint.point_type == "OCEAN")
+        )
+        pool_logs_query = (
+            db.query(DiveLog)
+            .join(DivePoint, DiveLog.dive_point_id == DivePoint.id)
+            .filter(visible_log_condition(current_user))
+            .filter(DivePoint.point_type == "POOL")
+        )
 
-        total_dives = visible_logs_query.with_entities(func.count(DiveLog.id)).scalar()
+        total_dives = ocean_logs_query.with_entities(func.count(DiveLog.id)).scalar()
+        pool_dives = pool_logs_query.with_entities(func.count(DiveLog.id)).scalar()
+        total_stored_logs = visible_logs_query.with_entities(func.count(DiveLog.id)).scalar()
 
-        max_depth = visible_logs_query.with_entities(func.max(DiveLog.max_depth)).scalar()
+        max_depth = ocean_logs_query.with_entities(func.max(DiveLog.max_depth)).scalar()
 
-        avg_depth = visible_logs_query.with_entities(func.avg(DiveLog.avg_depth)).scalar()
+        avg_depth = ocean_logs_query.with_entities(func.avg(DiveLog.avg_depth)).scalar()
 
-        total_dive_time = visible_logs_query.with_entities(func.sum(DiveLog.dive_time)).scalar()
+        total_dive_time = ocean_logs_query.with_entities(func.sum(DiveLog.dive_time)).scalar()
         total_dive_time_display = format_dive_duration(total_dive_time)
 
-        avg_water_temp = visible_logs_query.with_entities(func.avg(DiveLog.water_temp)).scalar()
+        avg_water_temp = ocean_logs_query.with_entities(func.avg(DiveLog.water_temp)).scalar()
 
         monthly_dive_date = monthly_dive_date_expression(db).label("month")
         monthly_dives = (
@@ -2419,7 +3199,9 @@ def stats_page(request: Request):
                 monthly_dive_date,
                 func.count(DiveLog.id).label("dive_count"),
             )
+            .join(DivePoint, DiveLog.dive_point_id == DivePoint.id)
             .filter(visible_log_condition(current_user))
+            .filter(DivePoint.point_type == "OCEAN")
             .group_by(monthly_dive_date)
             .order_by(monthly_dive_date)
             .all()
@@ -2435,6 +3217,7 @@ def stats_page(request: Request):
             .join(Area, DivePoint.area_id == Area.id)
             .join(Region, Area.region_id == Region.id)
             .filter(visible_log_condition(current_user))
+            .filter(DivePoint.point_type == "OCEAN")
             .group_by(Region.id, Region.name)
             .order_by(func.count(DiveLog.id).desc(), Region.name.asc())
             .all()
@@ -2448,6 +3231,7 @@ def stats_page(request: Request):
             .select_from(DiveLog)
             .join(DivePoint, DiveLog.dive_point_id == DivePoint.id)
             .filter(visible_log_condition(current_user))
+            .filter(DivePoint.point_type == "OCEAN")
             .group_by(DivePoint.id, DivePoint.name)
             .order_by(func.count(DiveLog.id).desc(), DivePoint.name.asc())
             .all()
@@ -2463,6 +3247,8 @@ def stats_page(request: Request):
             {
                 "request": request,
                 "total_dives": total_dives,
+                "pool_dives": pool_dives,
+                "total_stored_logs": total_stored_logs,
                 "max_depth": max_depth,
                 "avg_depth": avg_depth,
                 "total_dive_time": total_dive_time,
@@ -2515,9 +3301,23 @@ def home(request: Request):
     try:
         current_user = get_current_user(request, db)
         visible_logs_query = db.query(DiveLog).filter(visible_log_condition(current_user))
+        ocean_logs_query = (
+            db.query(DiveLog)
+            .join(DivePoint, DiveLog.dive_point_id == DivePoint.id)
+            .filter(visible_log_condition(current_user))
+            .filter(DivePoint.point_type == "OCEAN")
+        )
+        pool_logs_query = (
+            db.query(DiveLog)
+            .join(DivePoint, DiveLog.dive_point_id == DivePoint.id)
+            .filter(visible_log_condition(current_user))
+            .filter(DivePoint.point_type == "POOL")
+        )
 
-        total_dives = visible_logs_query.with_entities(func.count(DiveLog.id)).scalar()
-        total_dive_time = visible_logs_query.with_entities(func.sum(DiveLog.dive_time)).scalar()
+        total_dives = ocean_logs_query.with_entities(func.count(DiveLog.id)).scalar()
+        pool_dives = pool_logs_query.with_entities(func.count(DiveLog.id)).scalar()
+        total_stored_logs = visible_logs_query.with_entities(func.count(DiveLog.id)).scalar()
+        total_dive_time = ocean_logs_query.with_entities(func.sum(DiveLog.dive_time)).scalar()
         total_dive_time_display = format_dive_duration(total_dive_time)
         recent_logs = (
             db.query(DiveLog)
@@ -2535,6 +3335,8 @@ def home(request: Request):
             {
                 "request": request,
                 "total_dives": total_dives,
+                "pool_dives": pool_dives,
+                "total_stored_logs": total_stored_logs,
                 "total_dive_time": total_dive_time,
                 "total_dive_time_display": total_dive_time_display,
                 "recent_logs": recent_logs
@@ -2542,6 +3344,36 @@ def home(request: Request):
         )
     finally:
         db.close()
+
+
+@app.get("/logs/review-needed")
+def review_needed_logs(request: Request):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        logs = (
+            db.query(DiveLog)
+            .options(
+                joinedload(DiveLog.dive_point)
+                .joinedload(DivePoint.area)
+                .joinedload(Area.region)
+                .joinedload(Region.country)
+            )
+            .filter(visible_log_condition(current_user))
+            .order_by(DiveLog.dive_number.asc(), DiveLog.dive_date.asc(), DiveLog.id.asc())
+            .all()
+        )
+        review_rows = review_reason_rows(logs)
+        return templates.TemplateResponse(
+            "review_needed_logs.html",
+            {
+                "request": request,
+                "review_rows": review_rows,
+            },
+        )
+    finally:
+        db.close()
+
 
 @app.get("/logs")
 def all_logs(request: Request):
@@ -2555,10 +3387,19 @@ def all_logs(request: Request):
             "region_id": request.query_params.get("region_id", "").strip(),
             "area_id": request.query_params.get("area_id", "").strip(),
             "point_id": request.query_params.get("point_id", "").strip(),
+            "point_type": (request.query_params.get("point_type") or request.query_params.get("type") or "all").strip().upper(),
+            "dive_time_filter": request.query_params.get("dive_time_filter", "all").strip(),
+            "min_dive_time": request.query_params.get("min_dive_time", "").strip(),
             "buddy": request.query_params.get("buddy", "").strip(),
             "sort": request.query_params.get("sort", "number").strip(),
             "direction": request.query_params.get("direction", "asc").strip(),
         }
+        if filters["point_type"] not in ("ALL", "OCEAN", "POOL"):
+            filters["point_type"] = "ALL"
+        if filters["dive_time_filter"] == "all" and filters["min_dive_time"]:
+            filters["dive_time_filter"] = "gt0" if filters["min_dive_time"] == "gt0" else "custom"
+        if filters["dive_time_filter"] not in ("all", "gt0", "5", "10", "20", "custom"):
+            filters["dive_time_filter"] = "custom" if parse_int_filter(filters["min_dive_time"]) is not None else "all"
         recalculate_after_log_changes(db, current_user)
         db.commit()
 
@@ -2597,6 +3438,18 @@ def all_logs(request: Request):
 
         if point_id_filter:
             query = query.filter(DivePoint.id == point_id_filter)
+
+        if filters["dive_time_filter"] == "gt0":
+            query = query.filter(DiveLog.dive_time.isnot(None), DiveLog.dive_time > 0)
+        elif filters["dive_time_filter"] in ("5", "10", "20"):
+            query = query.filter(DiveLog.dive_time.isnot(None), DiveLog.dive_time >= int(filters["dive_time_filter"]))
+            filters["min_dive_time"] = filters["dive_time_filter"]
+        elif filters["dive_time_filter"] == "custom":
+            min_dive_time_filter = parse_int_filter(filters["min_dive_time"])
+            if min_dive_time_filter is not None:
+                query = query.filter(DiveLog.dive_time.isnot(None), DiveLog.dive_time >= min_dive_time_filter)
+            else:
+                filters["dive_time_filter"] = "all"
 
         if filters["buddy"]:
             query = query.filter(DiveLog.buddy.ilike(f"%{filters['buddy']}%"))

@@ -39,6 +39,7 @@ class DivePoint(Base):
 
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
+    point_type = Column(String, nullable=False, default="OCEAN")
     memo = Column(String, nullable=True)
 
     area = relationship("Area", backref="dive_points")
@@ -142,6 +143,9 @@ class DiveLog(Base):
     dive_time = Column(Integer)  # 분 단위
     water_temp = Column(Float)
     visibility = Column(Integer)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    site_name = Column(String, nullable=True)
     buddy = Column(String)
     start_pressure = Column(Integer)
     end_pressure = Column(Integer)

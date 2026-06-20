@@ -124,17 +124,27 @@
 
     <div class="summary-grid">
         <section class="summary-card">
-            <div class="summary-label">총 다이빙 횟수</div>
+            <div class="summary-label">해양 로그</div>
             <div class="summary-value">{{ total_dives or 0 }}</div>
         </section>
 
         <section class="summary-card">
-            <div class="summary-label">총 다이빙 시간</div>
+            <div class="summary-label">수영장 로그</div>
+            <div class="summary-value">{{ pool_dives or 0 }}</div>
+        </section>
+
+        <section class="summary-card">
+            <div class="summary-label">총 보관 로그</div>
+            <div class="summary-value">{{ total_stored_logs or 0 }}</div>
+        </section>
+
+        <section class="summary-card">
+            <div class="summary-label">총 다이빙 시간(해양)</div>
             <div class="summary-value">{{ total_dive_time_display }}</div>
         </section>
 
         <section class="summary-card">
-            <div class="summary-label">평균 수온</div>
+            <div class="summary-label">평균 수온(해양)</div>
             <div class="summary-value">
                 {% if avg_water_temp is not none %}
                 {{ "%.1f"|format(avg_water_temp) }} ℃
@@ -164,15 +174,23 @@
                 <th>값</th>
             </tr>
             <tr>
-                <td>총 다이빙 횟수</td>
+                <td>해양 로그</td>
                 <td>{{ total_dives or 0 }}</td>
             </tr>
             <tr>
-                <td>최대 수심</td>
+                <td>수영장 로그</td>
+                <td>{{ pool_dives or 0 }}</td>
+            </tr>
+            <tr>
+                <td>총 보관 로그</td>
+                <td>{{ total_stored_logs or 0 }}</td>
+            </tr>
+            <tr>
+                <td>최대 수심(해양)</td>
                 <td>{{ max_depth if max_depth is not none else '-' }}{% if max_depth is not none %} m{% endif %}</td>
             </tr>
             <tr>
-                <td>평균 수심</td>
+                <td>평균 수심(해양)</td>
                 <td>
                     {% if avg_depth is not none %}
                     {{ "%.1f"|format(avg_depth) }} m
@@ -182,11 +200,11 @@
                 </td>
             </tr>
             <tr>
-                <td>총 다이빙 시간</td>
+                <td>총 다이빙 시간(해양)</td>
                 <td>{{ total_dive_time_display }}</td>
             </tr>
             <tr>
-                <td>평균 수온</td>
+                <td>평균 수온(해양)</td>
                 <td>
                     {% if avg_water_temp is not none %}
                     {{ "%.1f"|format(avg_water_temp) }} ℃

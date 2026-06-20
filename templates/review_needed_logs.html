@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+
+{% block head %}
+<style>
+.review-page{
+    max-width:1200px;
+}
+
+.review-summary{
+    margin:0 0 14px;
+    color:#64748b;
+}
+
+.review-table-wrap{
+    overflow-x:auto;
+}
+
+.review-table{
+    width:100%;
+    border-collapse:collapse;
+    background:#ffffff;
+}
+
+.review-table th,
+.review-table td{
+    border:1px solid #e2e8f0;
+    padding:9px;
+    text-align:left;
+    vertical-align:top;
+    white-space:nowrap;
+}
+
+.review-table th{
+    background:#f8fafc;
+}
+
+.reason-list{
+    display:flex;
+    flex-wrap:wrap;
+    gap:5px;
+    white-space:normal;
+}
+
+.reason-badge{
+    display:inline-block;
+    padding:3px 7px;
+    border-radius:999px;
+    background:#fff7ed;
+    color:#92400e;
+    font-size:12px;
+}
+
+.action-links{
+    display:flex;
+    gap:6px;
+}
+
+.btn{
+    display:inline-block;
+    padding:7px 10px;
+    border:1px solid #cbd5e1;
+    border-radius:6px;
+    color:#111827;
+    background:#ffffff;
+    text-decoration:none;
+}
+
+.empty-row{
+    color:#64748b;
+    text-align:center;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="review-page">
+    <h2>검토 필요 로그</h2>
+    <p class="review-summary">다이브타임, 최대수심, 포인트, 수온, 중복 가능성을 기준으로 확인이 필요한 로그를 모았습니다.</p>
+    <p class="review-summary">검토 대상 {{ review_rows|length }}개</p>
+
+    <div class="review-table-wrap">
+        <table class="review-table">
+            <tr>
+                <th>Dive 번호</th>
+                <th>날짜</th>
+                <th>포인트</th>
+                <th>다이브타임</th>
+                <th>최대수심</th>
+                <th>수온</th>
+                <th>검토 사유</th>
+                <th>작업</th>
+            </tr>
+            {% for row in review_rows %}
+            {% set log = row.log %}
+            {% set point = log.dive_point %}
+            <tr>
+                <td>Dive #{{ log.dive_number or log.id }}</td>
+                <td>{{ log.dive_date }}</td>
+                <td>{{ point.name if point else '미확정' }}</td>
+                <td>{{ log.dive_time if log.dive_time is not none else '-' }}{% if log.dive_time is not none %}분{% endif %}</td>
+                <td>{{ log.max_depth if log.max_depth is not none else '-' }}{% if log.max_depth is not none %}m{% endif %}</td>
+                <td>{{ log.water_temp if log.water_temp is not none else '-' }}{% if log.water_temp is not none %}℃{% endif %}</td>
+                <td>
+                    <div class="reason-list">
+                        {% for reason in row.reasons %}
+                        <span class="reason-badge">{{ reason }}</span>
+                        {% endfor %}
+                    </div>
+                </td>
+                <td>
+                    <div class="action-links">
+                        <a class="btn" href="/log/{{ log.id }}">상세보기</a>
+                        {% if request.session.get("is_admin") or log.user_id == request.session.get("user_id") %}
+                        <a class="btn" href="/log/{{ log.id }}/edit">수정</a>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td class="empty-row" colspan="8">검토가 필요한 로그가 없습니다.</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+{% endblock %}

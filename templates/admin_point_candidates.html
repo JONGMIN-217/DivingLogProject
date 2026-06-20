@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block head %}
+<style>
+.candidate-page{
+    max-width:1100px;
+}
+
+.candidate-header{
+    margin-bottom:18px;
+}
+
+.candidate-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));
+    gap:14px;
+}
+
+.candidate-card{
+    border:1px solid #e2e8f0;
+    border-radius:8px;
+    padding:16px;
+    background:#ffffff;
+}
+
+.candidate-card h3{
+    margin:0 0 10px;
+}
+
+.candidate-meta{
+    display:grid;
+    gap:7px;
+    margin-bottom:14px;
+    color:#334155;
+}
+
+.candidate-meta strong{
+    color:#111827;
+}
+
+.hidden-fields{
+    display:none;
+}
+
+.primary-button{
+    width:100%;
+    padding:9px 12px;
+    border:0;
+    border-radius:6px;
+    background:#2563eb;
+    color:#ffffff;
+    cursor:pointer;
+}
+
+.log-preview{
+    margin-top:12px;
+    padding-top:12px;
+    border-top:1px solid #e2e8f0;
+    color:#64748b;
+    font-size:13px;
+}
+
+.empty-card{
+    padding:18px;
+    border:1px solid #e2e8f0;
+    border-radius:8px;
+    background:#ffffff;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="candidate-page">
+    <div class="candidate-header">
+        <h2>포인트 후보 검토 <span class="admin-badge">관리자</span></h2>
+        <p>GPS 좌표가 100m 이내인 로그들을 자동 그룹화했습니다. 포인트 생성 후 해당 그룹 로그가 자동으로 연결됩니다.</p>
+    </div>
+
+    {% if error %}
+    <div class="flash-error">{{ error }}</div>
+    {% endif %}
+    {% if message %}
+    <div class="flash-message">{{ message }}</div>
+    {% endif %}
+
+    {% if groups %}
+    <div class="candidate-grid">
+        {% for group in groups %}
+        <section class="candidate-card">
+            <h3>{{ group.title }}</h3>
+            <div class="candidate-meta">
+                <div>로그 <strong>{{ group.log_count }}개</strong></div>
+                <div>평균 GPS <strong>{{ "%.6f"|format(group.avg_latitude) }}, {{ "%.6f"|format(group.avg_longitude) }}</strong></div>
+                <div>대표 Site Name <strong>{{ group.representative_site_name }}</strong></div>
+                <div>추천 유형 <strong>{{ '수영장' if group.point_type == 'POOL' else '해양' }}</strong></div>
+            </div>
+
+            <form action="/admin/points/candidates/create" method="post">
+                <input type="hidden" name="country_name" value="{{ group.country_name }}">
+                <input type="hidden" name="region_name" value="{{ group.region_name }}">
+                <input type="hidden" name="area_name" value="{{ group.area_name }}">
+                <input type="hidden" name="point_name" value="{{ group.point_name }}">
+                <input type="hidden" name="point_type" value="{{ group.point_type }}">
+                <input type="hidden" name="latitude" value="{{ group.avg_latitude }}">
+                <input type="hidden" name="longitude" value="{{ group.avg_longitude }}">
+                <input type="hidden" name="memo" value="{{ group.memo }}">
+                {% for log_id in group.log_ids %}
+                <input type="hidden" name="log_ids" value="{{ log_id }}">
+                {% endfor %}
+                <button class="primary-button" type="submit">포인트 생성</button>
+            </form>
+
+            <div class="log-preview">
+                {% for log in group.logs[:5] %}
+                <div>Dive #{{ log.dive_number or '-' }} / {{ log.dive_date }}{% if log.site_name %} / {{ log.site_name }}{% endif %}</div>
+                {% endfor %}
+                {% if group.log_count > 5 %}
+                <div>외 {{ group.log_count - 5 }}개 로그</div>
+                {% endif %}
+            </div>
+        </section>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-card">100m 이내로 묶을 수 있는 GPS 로그 후보가 없습니다.</div>
+    {% endif %}
+</div>
+{% endblock %}

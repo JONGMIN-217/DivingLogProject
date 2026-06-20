@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block head %}
+<style>
+.preview-page{max-width:900px}
+.preview-card{margin-bottom:16px;padding:16px;border:1px solid #e2e8f0;border-radius:8px;background:#fff}
+.point-list{margin:0;padding-left:20px}
+.warning{padding:12px;border:1px solid #fed7aa;border-radius:8px;background:#fff7ed;color:#92400e}
+.actions{display:flex;gap:8px}
+.primary-button{padding:9px 12px;border:0;border-radius:6px;background:#c9342c;color:#fff;cursor:pointer}
+.secondary-link{display:inline-block;padding:9px 12px;border:1px solid #cbd5e1;border-radius:6px;color:#111827;text-decoration:none}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="preview-page">
+    <h2>포인트 병합 확인 <span class="admin-badge">관리자</span></h2>
+
+    <section class="preview-card">
+        <h3>대표 포인트</h3>
+        <p>{{ representative.name }} (ID {{ representative.id }})</p>
+    </section>
+
+    <section class="preview-card">
+        <h3>병합 대상 포인트</h3>
+        <ul class="point-list">
+            {% for point in points %}
+            <li>
+                {{ point.name }} (ID {{ point.id }})
+                {% if point.id == representative.id %} - 대표{% else %} - 병합 후 삭제{% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </section>
+
+    <section class="preview-card">
+        <h3>영향 범위</h3>
+        <p>선택한 포인트에 연결된 전체 로그: {{ affected_log_count }}개</p>
+        <p>대표 포인트로 이동될 로그: {{ merge_log_count }}개</p>
+    </section>
+
+    <div class="warning">
+        병합을 확정하면 대표 포인트가 아닌 포인트는 삭제되고, 연결된 로그는 모두 대표 포인트로 변경됩니다.
+    </div>
+
+    <form action="/admin/points/merge/confirm" method="post">
+        {% for point_id in selected_ids %}
+        <input type="hidden" name="point_ids" value="{{ point_id }}">
+        {% endfor %}
+        <input type="hidden" name="representative_point_id" value="{{ representative.id }}">
+        <p class="actions">
+            <button class="primary-button" type="submit">병합 확정</button>
+            <a class="secondary-link" href="/admin/points/merge">돌아가기</a>
+        </p>
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block head %}
+<style>
+.merge-page{max-width:1200px}
+.merge-card{margin-bottom:16px;padding:16px;border:1px solid #e2e8f0;border-radius:8px;background:#fff}
+.merge-table-wrap{overflow-x:auto}
+.merge-table{width:100%;border-collapse:collapse;background:#fff}
+.merge-table th,.merge-table td{border:1px solid #e2e8f0;padding:8px;text-align:left;white-space:nowrap}
+.merge-table th{background:#f8fafc}
+.field{display:grid;gap:6px;margin-bottom:12px}
+.field select{max-width:420px;padding:8px;border:1px solid #cbd5e1;border-radius:6px}
+.candidate-list{display:grid;gap:10px}
+.candidate-item{padding:12px;border:1px solid #fed7aa;border-radius:8px;background:#fff7ed}
+.candidate-item form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+.primary-button{padding:8px 12px;border:0;border-radius:6px;background:#2563eb;color:#fff;cursor:pointer}
+.message{color:#137333;font-weight:700}
+.error{color:#b00020;font-weight:700}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="merge-page">
+    <h2>포인트 병합 <span class="admin-badge">관리자</span></h2>
+    <p>두 개 이상의 포인트를 대표 포인트 하나로 병합합니다. 병합 전 영향받는 로그 수를 확인합니다.</p>
+
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    {% if message %}<p class="message">{{ message }}</p>{% endif %}
+
+    <section class="merge-card">
+        <h3>GPS 가까운 병합 후보</h3>
+        {% if candidates %}
+        <div class="candidate-list">
+            {% for candidate in candidates[:20] %}
+            <div class="candidate-item">
+                <strong>{{ candidate.points[0].name }}</strong> ↔ <strong>{{ candidate.points[1].name }}</strong>
+                <div>거리 {{ candidate.distance_m }}m / 영향 로그 {{ candidate.log_count }}개 / 추천 대표 포인트: {{ candidate.representative.name }}</div>
+                <form action="/admin/points/merge/preview" method="post">
+                    {% for point in candidate.points %}
+                    <input type="hidden" name="point_ids" value="{{ point.id }}">
+                    {% endfor %}
+                    <input type="hidden" name="representative_point_id" value="{{ candidate.representative.id }}">
+                    <button class="primary-button" type="submit">이 후보 검토</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p>100m 이내 GPS 병합 후보가 없습니다.</p>
+        {% endif %}
+    </section>
+
+    <section class="merge-card">
+        <h3>직접 선택 병합</h3>
+        <form action="/admin/points/merge/preview" method="post">
+            <div class="field">
+                <label for="representative_point_id">대표 포인트</label>
+                <select id="representative_point_id" name="representative_point_id" required>
+                    <option value="">대표 포인트 선택</option>
+                    {% for point in points %}
+                    <option value="{{ point.id }}">{{ point.name }} (ID {{ point.id }}, 로그 {{ log_counts.get(point.id, 0) }}개)</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="merge-table-wrap">
+                <table class="merge-table">
+                    <tr>
+                        <th>선택</th>
+                        <th>ID</th>
+                        <th>포인트명</th>
+                        <th>유형</th>
+                        <th>위도</th>
+                        <th>경도</th>
+                        <th>로그 수</th>
+                    </tr>
+                    {% for point in points %}
+                    <tr>
+                        <td><input type="checkbox" name="point_ids" value="{{ point.id }}"></td>
+                        <td>{{ point.id }}</td>
+                        <td>{{ point.name }}</td>
+                        <td>{{ '수영장' if point.point_type == 'POOL' else '해양' }}</td>
+                        <td>{{ point.latitude if point.latitude is not none else '-' }}</td>
+                        <td>{{ point.longitude if point.longitude is not none else '-' }}</td>
+                        <td>{{ log_counts.get(point.id, 0) }}</td>
+                    </tr>
+                    {% endfor %}
+                </table>
+            </div>
+
+            <p><button class="primary-button" type="submit">병합 영향 확인</button></p>
+        </form>
+    </section>
+</div>
+{% endblock %}

@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block head %}
+<style>
+.point-form-page{
+    max-width:960px;
+}
+
+.source-summary,
+.form-card,
+.warning-card,
+.nearby-card{
+    margin-bottom:16px;
+    padding:14px;
+    border:1px solid #e2e8f0;
+    border-radius:8px;
+    background:#ffffff;
+}
+
+.warning-card{
+    border-color:#fed7aa;
+    background:#fff7ed;
+    color:#92400e;
+}
+
+.field-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+    gap:12px;
+}
+
+.field{
+    display:grid;
+    gap:5px;
+}
+
+.field input,
+.field select,
+.field textarea{
+    width:100%;
+    padding:8px;
+    border:1px solid #cbd5e1;
+    border-radius:6px;
+}
+
+.field textarea{
+    min-height:90px;
+}
+
+.checkbox-list{
+    display:grid;
+    gap:8px;
+    margin:14px 0;
+}
+
+.nearby-table{
+    width:100%;
+    border-collapse:collapse;
+}
+
+.nearby-table th,
+.nearby-table td{
+    border:1px solid #e2e8f0;
+    padding:8px;
+    text-align:left;
+}
+
+.form-actions{
+    display:flex;
+    gap:8px;
+}
+
+.primary-button{
+    padding:9px 12px;
+    border:0;
+    border-radius:6px;
+    background:#2563eb;
+    color:#ffffff;
+    cursor:pointer;
+}
+
+.secondary-link{
+    display:inline-block;
+    padding:9px 12px;
+    border:1px solid #cbd5e1;
+    border-radius:6px;
+    color:#111827;
+    text-decoration:none;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="point-form-page">
+    <h2>로그 기반 포인트 생성 <span class="admin-badge">관리자</span></h2>
+
+    {% if error %}
+    <div class="flash-error">{{ error }}</div>
+    {% endif %}
+
+    <section class="source-summary">
+        <h3>원본 로그</h3>
+        <p>
+            Dive #{{ log.dive_number or '-' }} /
+            {{ log.dive_date }}
+            {% if log.entry_time %} {{ log.entry_time.strftime("%H:%M") }}{% endif %}
+        </p>
+        <p>기존 포인트: {{ log.dive_point.name if log.dive_point else '없음' }}</p>
+        <p>Site Name: {{ log.site_name if log.site_name else '-' }}</p>
+    </section>
+
+    {% if duplicate_warnings %}
+    <section class="warning-card">
+        <h3>중복 포인트 경고</h3>
+        <ul>
+            {% for warning in duplicate_warnings %}
+            <li>{{ warning }}</li>
+            {% endfor %}
+        </ul>
+        <p>동일하거나 매우 가까운 포인트가 있을 수 있습니다. 확인 후 저장하세요.</p>
+    </section>
+    {% endif %}
+
+    <form class="form-card" action="/admin/points/from-logs/{{ log.id }}" method="post">
+        <div class="field-grid">
+            <div class="field">
+                <label for="country_name">국가</label>
+                <input id="country_name" name="country_name" value="{{ country_name }}" required>
+            </div>
+            <div class="field">
+                <label for="region_name">지역</label>
+                <input id="region_name" name="region_name" value="{{ region_name }}" required>
+            </div>
+            <div class="field">
+                <label for="area_name">세부지역</label>
+                <input id="area_name" name="area_name" value="{{ area_name }}" required>
+            </div>
+            <div class="field">
+                <label for="point_name">포인트명</label>
+                <input id="point_name" name="point_name" value="{{ point_name }}" required>
+            </div>
+            <div class="field">
+                <label for="point_type">포인트 유형</label>
+                <select id="point_type" name="point_type">
+                    <option value="OCEAN" {% if point_type != 'POOL' %}selected{% endif %}>해양</option>
+                    <option value="POOL" {% if point_type == 'POOL' %}selected{% endif %}>수영장</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="latitude">위도</label>
+                <input id="latitude" name="latitude" type="number" step="0.000001" min="-90" max="90" value="{{ latitude }}" required>
+            </div>
+            <div class="field">
+                <label for="longitude">경도</label>
+                <input id="longitude" name="longitude" type="number" step="0.000001" min="-180" max="180" value="{{ longitude }}" required>
+            </div>
+        </div>
+
+        <div class="field" style="margin-top:12px;">
+            <label for="memo">메모</label>
+            <textarea id="memo" name="memo">{{ memo }}</textarea>
+        </div>
+
+        <div class="checkbox-list">
+            <label><input type="checkbox" name="link_current_log" value="1" checked> 이 로그를 새 포인트에 연결</label>
+            <label><input type="checkbox" name="link_nearby_logs" value="1"> 같은 GPS 근처 로그도 연결</label>
+            {% if duplicate_warnings %}
+            <label><input type="checkbox" name="confirm_duplicates" value="1"> 중복 경고를 확인했습니다</label>
+            {% endif %}
+        </div>
+
+        <div class="form-actions">
+            <button class="primary-button" type="submit">포인트 저장</button>
+            <a class="secondary-link" href="/admin/points/from-logs">목록으로 돌아가기</a>
+        </div>
+    </form>
+
+    <section class="nearby-card">
+        <h3>100m 이내 근처 로그</h3>
+        {% if nearby_logs %}
+        <table class="nearby-table">
+            <tr>
+                <th>Dive 번호</th>
+                <th>날짜</th>
+                <th>현재 포인트</th>
+                <th>거리</th>
+            </tr>
+            {% for nearby_log, distance in nearby_logs %}
+            <tr>
+                <td>Dive #{{ nearby_log.dive_number or '-' }}</td>
+                <td>{{ nearby_log.dive_date }}</td>
+                <td>{{ nearby_log.dive_point.name if nearby_log.dive_point else '-' }}</td>
+                <td>{{ (distance * 1000)|round|int }}m</td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% else %}
+        <p>100m 이내 근처 로그가 없습니다.</p>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

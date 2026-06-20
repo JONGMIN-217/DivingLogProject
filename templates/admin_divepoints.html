@@ -134,6 +134,13 @@
     <div class="admin-point-header">
         <h2>다이빙 포인트 관리</h2>
         <p>새 포인트를 등록하면 지도와 로그 작성 화면에 자동으로 표시됩니다.</p>
+        <p>
+            <a href="/admin/points/merge">포인트 병합</a>
+            |
+            <a href="/admin/points/candidates">포인트 후보 검토</a>
+            |
+            <a href="/admin/points/from-logs">내 로그에서 포인트 등록</a>
+        </p>
     </div>
 
     {% if error %}
@@ -164,6 +171,13 @@
                     <div class="field">
                         <label for="point_name">포인트명</label>
                         <input id="point_name" name="point_name" required>
+                    </div>
+                    <div class="field">
+                        <label for="point_type">포인트 유형</label>
+                        <select id="point_type" name="point_type">
+                            <option value="OCEAN" selected>해양</option>
+                            <option value="POOL">수영장</option>
+                        </select>
                     </div>
                     <div class="field">
                         <label for="latitude">위도</label>
@@ -208,6 +222,7 @@
                     <th>지역</th>
                     <th>세부지역</th>
                     <th>포인트명</th>
+                    <th>유형</th>
                     <th>위도</th>
                     <th>경도</th>
                     <th>메모</th>
@@ -222,6 +237,7 @@
                     <td>{{ region.name if region else '-' }}</td>
                     <td>{{ area.name if area else '-' }}</td>
                     <td>{{ point.name }}</td>
+                    <td>{{ '수영장' if point.point_type == 'POOL' else '해양' }}</td>
                     <td>{{ point.latitude }}</td>
                     <td>{{ point.longitude }}</td>
                     <td>{{ point.memo if point.memo else '-' }}</td>

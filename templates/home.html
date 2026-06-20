@@ -189,12 +189,22 @@
 
     <section class="summary-grid">
         <div class="summary-card">
-            <div class="summary-label">총 다이빙 횟수</div>
+            <div class="summary-label">해양 로그</div>
             <div class="summary-value">{{ total_dives or 0 }}회</div>
         </div>
 
         <div class="summary-card">
-            <div class="summary-label">총 다이빙 시간</div>
+            <div class="summary-label">수영장 로그</div>
+            <div class="summary-value">{{ pool_dives or 0 }}회</div>
+        </div>
+
+        <div class="summary-card">
+            <div class="summary-label">총 보관 로그</div>
+            <div class="summary-value">{{ total_stored_logs or 0 }}개</div>
+        </div>
+
+        <div class="summary-card">
+            <div class="summary-label">총 다이빙 시간(해양)</div>
             <div class="summary-value">{{ total_dive_time_display }}</div>
         </div>
     </section>

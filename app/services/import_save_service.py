@@ -68,6 +68,9 @@ def save_import_items(db, items: list[dict | ImportDive], user_id: int | None):
                         dive_time=normalized["dive_time"],
                         water_temp=normalized["water_temp"],
                         visibility=normalized["visibility"],
+                        latitude=normalize_float(dive.latitude),
+                        longitude=normalize_float(dive.longitude),
+                        site_name=_safe_text(dive.site_name),
                         start_pressure=normalized["start_pressure"],
                         end_pressure=normalized["end_pressure"],
                         buddy=normalized["buddy"],
@@ -286,7 +289,7 @@ def _get_or_create_point(db, country_name, region_name, area_name, point_name, l
 
     point = db.query(DivePoint).filter(DivePoint.name == point_name, DivePoint.area_id == area.id).first()
     if not point:
-        point = DivePoint(name=point_name, area_id=area.id, latitude=latitude, longitude=longitude, memo=memo)
+        point = DivePoint(name=point_name, area_id=area.id, latitude=latitude, longitude=longitude, point_type="OCEAN", memo=memo)
         db.add(point)
         db.flush()
     return point
