@@ -1,3 +1,4 @@
+import json
 import re
 import uuid
 from datetime import date, datetime, time, timedelta
@@ -78,6 +79,7 @@ def save_import_items(db, items: list[dict | ImportDive], user_id: int | None):
                         import_source=_safe_text(dive.source),
                         import_external_id=_safe_text(dive.external_id),
                         import_source_file_hash=_safe_text(source_file_hash),
+                        profile_samples=normalized["profile_samples"],
                     )
                 )
                 db.flush()
@@ -109,6 +111,7 @@ def normalize_import_dive(dive: ImportDive):
         "end_pressure": normalize_int(dive.end_pressure),
         "buddy": _safe_text(dive.buddy),
         "note": _safe_text(dive.note),
+        "profile_samples": normalize_profile_samples(getattr(dive, "profile_samples", None)),
     }
 
 
@@ -198,6 +201,18 @@ def normalize_temperature(value):
 def normalize_int(value):
     number = _number_from_value(value)
     return int(round(number)) if number is not None else None
+
+
+def normalize_profile_samples(value):
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        return text or None
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except TypeError:
+        return None
 
 
 def _parse_time_text(text: str):

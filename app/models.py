@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Integer, String, ForeignKey, Float, Date, Time
+from sqlalchemy import Boolean, Column, Integer, String, ForeignKey, Float, Date, Time, Text
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -151,6 +151,7 @@ class DiveLog(Base):
     end_pressure = Column(Integer)
     image_path = Column(String, nullable=True)
     note = Column(String)
+    profile_samples = Column(Text, nullable=True)
     import_source = Column(String, nullable=True, index=True)
     import_external_id = Column(String, nullable=True, index=True)
     import_source_file_hash = Column(String, nullable=True, index=True)

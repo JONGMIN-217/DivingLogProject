@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -104,6 +105,7 @@ def _parse_dive(dive_element, site_map: dict[str, dict[str, object]], original_f
         warnings,
     )
     depth_samples = _waypoint_numbers(dive_element, "depth")
+    profile_samples = _profile_samples_from_waypoints(waypoint_times, depth_samples)
     if max_depth is None and depth_samples:
         max_depth = max(depth_samples)
         confidence["최대수심"] = "샘플"
@@ -154,6 +156,7 @@ def _parse_dive(dive_element, site_map: dict[str, dict[str, object]], original_f
         latitude=latitude,
         longitude=longitude,
         site_name=site_name if site_name and not _looks_like_auto_id(site_name) else None,
+        profile_samples=profile_samples,
         confidence=confidence,
         warnings=warnings,
         raw=raw,
@@ -297,6 +300,22 @@ def _waypoint_numbers(element, *names: str) -> list[float]:
         if number is not None:
             values.append(number)
     return values
+
+
+def _profile_samples_from_waypoints(times: list[float], depths: list[float]) -> str | None:
+    if not depths:
+        return None
+
+    samples = []
+    for index, depth in enumerate(depths):
+        sample = {"depth": round(depth, 2)}
+        if index < len(times):
+            sample["time"] = round(times[index], 2)
+        else:
+            sample["minutes"] = index
+        samples.append(sample)
+
+    return json.dumps({"samples": samples}, ensure_ascii=False)
 
 
 def _first_waypoint_coordinate(element, *names: str) -> float | None:

@@ -35,7 +35,7 @@
 <td>Dive #{{ log.dive_number or log.id }}</td>
 <td>{{ log.dive_date }}</td>
 <td>{{ log.max_depth }} m</td>
-<td>{{ log.avg_depth }} m</td>
+<td>{% if log.avg_depth is not none %}{{ "%.1f"|format(log.avg_depth) }} m{% else %}-{% endif %}</td>
 <td>{{ log.entry_time.strftime('%H:%M') if log.entry_time else '-' }}</td>
 <td>{{ log.exit_time.strftime('%H:%M') if log.exit_time else '-' }}</td>
 <td>{{ log.dive_time }} 분</td>

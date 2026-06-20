@@ -8,6 +8,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from datetime import date, datetime
 import hashlib
+import json
 
 from app.auth import hash_password, verify_password
 from app.database import Base, SessionLocal, engine
@@ -237,6 +238,10 @@ def apply_visible_logs(query, user):
     return query.filter(visible_log_condition(user))
 
 
+def ghost_log_condition():
+    return or_(DiveLog.dive_time.is_(None), DiveLog.dive_time == 0)
+
+
 def owned_log_condition(user):
     return DiveLog.user_id == user.id
 
@@ -388,6 +393,191 @@ def parse_float_value(value: str | None):
         return float(value)
     except ValueError:
         return None
+
+
+def _normalize_profile_key(key):
+    return "".join(char for char in str(key).lower() if char.isalnum())
+
+
+def _profile_number(value):
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        cleaned = value.strip().replace("m", "").replace("분", "").replace("초", "")
+        cleaned = cleaned.replace(",", ".")
+        try:
+            return float(cleaned)
+        except ValueError:
+            return None
+    return None
+
+
+def _profile_time_text_to_minutes(value):
+    if not isinstance(value, str) or ":" not in value:
+        return None
+
+    parts = value.strip().split(":")
+    if len(parts) == 2:
+        minutes = _profile_number(parts[0])
+        seconds = _profile_number(parts[1])
+        if minutes is None or seconds is None:
+            return None
+        return minutes + seconds / 60
+
+    if len(parts) == 3:
+        hours = _profile_number(parts[0])
+        minutes = _profile_number(parts[1])
+        seconds = _profile_number(parts[2])
+        if hours is None or minutes is None or seconds is None:
+            return None
+        return hours * 60 + minutes + seconds / 60
+
+    return None
+
+
+def _extract_profile_sample_items(parsed):
+    if isinstance(parsed, list):
+        return parsed
+    if not isinstance(parsed, dict):
+        return []
+
+    preferred_keys = {
+        "samples",
+        "profile",
+        "profilesamples",
+        "depthprofile",
+        "diveprofile",
+        "waypoints",
+        "data",
+    }
+    for key, value in parsed.items():
+        if _normalize_profile_key(key) in preferred_keys and isinstance(value, list):
+            return value
+
+    for value in parsed.values():
+        if isinstance(value, list) and value and isinstance(value[0], (dict, list, tuple)):
+            return value
+
+    return []
+
+
+def parse_depth_profile_samples(value, dive_time_minutes: int | None = None):
+    if not value:
+        return []
+
+    parsed = value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+
+    depth_keys = {
+        "depth",
+        "depthm",
+        "depthmeter",
+        "depthmeters",
+        "currentdepth",
+        "currentdepthm",
+        "currentdepthmeters",
+    }
+    time_keys = {
+        "time",
+        "elapsedtime",
+        "runtime",
+        "divetime",
+        "seconds",
+        "timeseconds",
+        "elapsedseconds",
+        "runtimeseconds",
+        "second",
+        "minute",
+        "minutes",
+    }
+    second_keys = {"seconds", "timeseconds", "elapsedseconds", "runtimeseconds", "second"}
+    minute_keys = {"minute", "minutes"}
+
+    raw_entries = []
+    for index, sample in enumerate(_extract_profile_sample_items(parsed)):
+        raw_time = None
+        time_unit = "unknown"
+        depth = None
+
+        if isinstance(sample, dict):
+            for key, sample_value in sample.items():
+                normalized_key = _normalize_profile_key(key)
+                if normalized_key in depth_keys and depth is None:
+                    depth = _profile_number(sample_value)
+                if normalized_key in time_keys and raw_time is None:
+                    text_minutes = _profile_time_text_to_minutes(sample_value)
+                    raw_time = text_minutes if text_minutes is not None else _profile_number(sample_value)
+                    if normalized_key in second_keys:
+                        time_unit = "seconds"
+                    elif normalized_key in minute_keys or text_minutes is not None:
+                        time_unit = "minutes"
+        elif isinstance(sample, (list, tuple)) and len(sample) >= 2:
+            raw_time = _profile_number(sample[0])
+            depth = _profile_number(sample[1])
+
+        if raw_time is None:
+            raw_time = float(index)
+            time_unit = "minutes"
+
+        if depth is None or depth < 0:
+            continue
+
+        raw_entries.append({"time": float(raw_time), "unit": time_unit, "depth": float(depth)})
+
+    if not raw_entries:
+        return []
+
+    unknown_times = [entry["time"] for entry in raw_entries if entry["unit"] == "unknown"]
+    max_unknown_time = max(unknown_times, default=0)
+    treat_unknown_as_seconds = (
+        (dive_time_minutes is not None and max_unknown_time > dive_time_minutes + 5)
+        or max_unknown_time > 180
+    )
+
+    samples = []
+    for entry in raw_entries:
+        time_minutes = entry["time"]
+        if entry["unit"] == "seconds" or (entry["unit"] == "unknown" and treat_unknown_as_seconds):
+            time_minutes = time_minutes / 60
+        samples.append(
+            {
+                "time": round(time_minutes, 2),
+                "depth": round(entry["depth"], 2),
+            }
+        )
+
+    samples.sort(key=lambda item: item["time"])
+    return samples
+
+
+def depth_profile_context(log: DiveLog):
+    samples = parse_depth_profile_samples(
+        getattr(log, "profile_samples", None),
+        log.dive_time,
+    )
+    if not samples:
+        return {
+            "samples": [],
+            "max_sample": None,
+            "avg_depth": log.avg_depth,
+        }
+
+    max_sample = max(samples, key=lambda item: item["depth"])
+    avg_depth = log.avg_depth
+    if avg_depth is None:
+        avg_depth = sum(sample["depth"] for sample in samples) / len(samples)
+
+    return {
+        "samples": samples,
+        "max_sample": max_sample,
+        "avg_depth": round(avg_depth, 2) if avg_depth is not None else None,
+    }
 
 
 def valid_coordinate(latitude: float | None, longitude: float | None):
@@ -1159,6 +1349,7 @@ def ensure_dive_log_time_columns():
         "latitude": "FLOAT",
         "longitude": "FLOAT",
         "site_name": "VARCHAR",
+        "profile_samples": "TEXT",
         "import_source": "VARCHAR",
         "import_external_id": "VARCHAR",
         "import_source_file_hash": "VARCHAR",
@@ -3101,6 +3292,49 @@ def delete_selected_logs(
         db.close()
 
 
+@app.post("/logs/delete-ghost-selected")
+def delete_selected_ghost_logs(
+    request: Request,
+    log_ids: list[int] = Form([]),
+):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        if not current_user:
+            return login_required_redirect(request)
+
+        if not log_ids:
+            return RedirectResponse(url="/logs?point_type=GHOST&error=삭제할 유령 로그를 선택하세요.", status_code=303)
+
+        logs = (
+            editable_log_query(db, current_user)
+            .filter(DiveLog.id.in_(log_ids))
+            .filter(ghost_log_condition())
+            .all()
+        )
+        allowed_ids = {log.id for log in logs}
+        denied_count = len([log_id for log_id in log_ids if log_id not in allowed_ids])
+        affected_user_ids = {log.user_id for log in logs}
+
+        for log in logs:
+            db.delete(log)
+
+        recalculate_after_log_changes(db, current_user, affected_user_ids)
+        db.commit()
+
+        remaining_ghost_count = (
+            editable_log_query(db, current_user)
+            .filter(ghost_log_condition())
+            .count()
+        )
+        message = f"유령 로그 삭제 완료: 삭제된 로그 {len(logs)}개, 남은 유령 로그 {remaining_ghost_count}개"
+        if denied_count:
+            message += f", 삭제 제외 {denied_count}개"
+        return RedirectResponse(url=f"/logs?{urlencode({'point_type': 'GHOST', 'message': message})}", status_code=303)
+    finally:
+        db.close()
+
+
 @app.get("/logs/delete-all-confirm")
 def delete_all_logs_confirm(request: Request):
     db = SessionLocal()
@@ -3288,7 +3522,8 @@ def log_detail(request: Request, log_id: int):
             "log_detail.html",
             {
                 "request": request,
-                "log": log
+                "log": log,
+                "depth_profile": depth_profile_context(log) if log else {"samples": []},
             }
         )
     finally:
@@ -3317,6 +3552,7 @@ def home(request: Request):
         total_dives = ocean_logs_query.with_entities(func.count(DiveLog.id)).scalar()
         pool_dives = pool_logs_query.with_entities(func.count(DiveLog.id)).scalar()
         total_stored_logs = visible_logs_query.with_entities(func.count(DiveLog.id)).scalar()
+        ghost_log_count = visible_logs_query.filter(ghost_log_condition()).with_entities(func.count(DiveLog.id)).scalar()
         total_dive_time = ocean_logs_query.with_entities(func.sum(DiveLog.dive_time)).scalar()
         total_dive_time_display = format_dive_duration(total_dive_time)
         recent_logs = (
@@ -3337,6 +3573,7 @@ def home(request: Request):
                 "total_dives": total_dives,
                 "pool_dives": pool_dives,
                 "total_stored_logs": total_stored_logs,
+                "ghost_log_count": ghost_log_count,
                 "total_dive_time": total_dive_time,
                 "total_dive_time_display": total_dive_time_display,
                 "recent_logs": recent_logs
@@ -3394,7 +3631,7 @@ def all_logs(request: Request):
             "sort": request.query_params.get("sort", "number").strip(),
             "direction": request.query_params.get("direction", "asc").strip(),
         }
-        if filters["point_type"] not in ("ALL", "OCEAN", "POOL"):
+        if filters["point_type"] not in ("ALL", "OCEAN", "POOL", "GHOST"):
             filters["point_type"] = "ALL"
         if filters["dive_time_filter"] == "all" and filters["min_dive_time"]:
             filters["dive_time_filter"] = "gt0" if filters["min_dive_time"] == "gt0" else "custom"

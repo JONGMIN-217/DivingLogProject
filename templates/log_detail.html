@@ -131,8 +131,30 @@
 }
 
 .note-card,
-.photo-card {
+.photo-card,
+.profile-card {
     margin-top: 16px;
+}
+
+.depth-profile-chart {
+    width: 100%;
+    height: 320px;
+}
+
+.profile-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+    color: #555;
+    font-size: 14px;
+}
+
+.profile-chip {
+    border: 1px solid #ddd;
+    border-radius: 999px;
+    background: #f8f9fb;
+    padding: 5px 10px;
 }
 
 .note-text {
@@ -172,6 +194,10 @@
 
     .info-row {
         grid-template-columns: 86px 1fr;
+    }
+
+    .depth-profile-chart {
+        height: 240px;
     }
 }
 </style>
@@ -276,7 +302,7 @@
                 </div>
                 <div class="info-row">
                     <div class="info-label">평균수심</div>
-                    <div class="info-value">{{ log.avg_depth if log.avg_depth is not none else '-' }}{% if log.avg_depth is not none %} m{% endif %}</div>
+                    <div class="info-value">{% if log.avg_depth is not none %}{{ "%.1f"|format(log.avg_depth) }} m{% else %}-{% endif %}</div>
                 </div>
                 <div class="info-row">
                     <div class="info-label">수온</div>
@@ -314,6 +340,24 @@
         </section>
     </div>
 
+    <section class="detail-card profile-card">
+        <h3>수심 프로파일</h3>
+        {% if depth_profile.samples %}
+        <div class="profile-summary">
+            {% if depth_profile.max_sample %}
+            <span class="profile-chip">최대수심 {{ depth_profile.max_sample.depth }} m · {{ depth_profile.max_sample.time }}분</span>
+            {% endif %}
+            {% if depth_profile.avg_depth is not none %}
+            <span class="profile-chip">평균수심 {{ "%.1f"|format(depth_profile.avg_depth) }} m</span>
+            {% endif %}
+        </div>
+        <div id="depthProfileChart" class="depth-profile-chart" aria-label="수심 프로파일 그래프"></div>
+        <p id="depthProfileFallback" class="empty-value">수심 그래프를 불러오는 중입니다.</p>
+        {% else %}
+        <p class="empty-value">수심 프로파일 정보 없음</p>
+        {% endif %}
+    </section>
+
     <section class="detail-card note-card">
         <h3>메모</h3>
         {% if log.note %}
@@ -337,5 +381,138 @@
         <a class="btn" href="/logs">전체 로그</a>
     </div>
 </div>
+
+{% if depth_profile.samples %}
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/recharts/umd/Recharts.min.js"></script>
+<script>
+(function () {
+    const profileData = {{ depth_profile|tojson }};
+    const chartNode = document.getElementById("depthProfileChart");
+    const fallbackNode = document.getElementById("depthProfileFallback");
+
+    if (!chartNode || !profileData.samples || profileData.samples.length === 0) {
+        return;
+    }
+
+    if (!window.React || !window.ReactDOM || !window.Recharts) {
+        if (fallbackNode) {
+            fallbackNode.textContent = "수심 그래프 라이브러리를 불러오지 못했습니다.";
+        }
+        return;
+    }
+
+    const {
+        ResponsiveContainer,
+        LineChart,
+        Line,
+        XAxis,
+        YAxis,
+        CartesianGrid,
+        Tooltip,
+        ReferenceLine,
+        ReferenceDot
+    } = window.Recharts;
+    const h = window.React.createElement;
+    const maxDepth = Math.max.apply(null, profileData.samples.map((sample) => sample.depth));
+    const yMax = Math.max(5, Math.ceil((maxDepth + 2) / 5) * 5);
+
+    function ProfileTooltip(props) {
+        if (!props.active || !props.payload || !props.payload.length) {
+            return null;
+        }
+
+        const depth = props.payload[0].value;
+        return h(
+            "div",
+            {
+                style: {
+                    border: "1px solid #ddd",
+                    borderRadius: "6px",
+                    background: "#fff",
+                    padding: "8px 10px",
+                    boxShadow: "0 3px 10px rgba(0,0,0,0.08)"
+                }
+            },
+            h("div", null, "경과 시간: " + Number(props.label).toFixed(1) + "분"),
+            h("div", null, "수심: " + Number(depth).toFixed(1) + " m")
+        );
+    }
+
+    function DepthProfileChart() {
+        const children = [
+            h(CartesianGrid, { key: "grid", strokeDasharray: "3 3", stroke: "#e5e7eb" }),
+            h(XAxis, {
+                key: "x",
+                dataKey: "time",
+                type: "number",
+                domain: ["dataMin", "dataMax"],
+                tickFormatter: (value) => Number(value).toFixed(0) + "분",
+                label: { value: "경과 시간", position: "insideBottom", offset: -2 }
+            }),
+            h(YAxis, {
+                key: "y",
+                reversed: true,
+                domain: [0, yMax],
+                tickFormatter: (value) => value + "m",
+                label: { value: "수심", angle: -90, position: "insideLeft" }
+            }),
+            h(Tooltip, { key: "tooltip", content: h(ProfileTooltip) }),
+            h(Line, {
+                key: "line",
+                type: "monotone",
+                dataKey: "depth",
+                stroke: "#2364d2",
+                strokeWidth: 2,
+                dot: false,
+                isAnimationActive: false
+            })
+        ];
+
+        if (profileData.avg_depth !== null && profileData.avg_depth !== undefined) {
+            children.push(h(ReferenceLine, {
+                key: "avg",
+                y: profileData.avg_depth,
+                stroke: "#e07a1f",
+                strokeDasharray: "5 5",
+                label: {
+                    value: "평균수심 " + Number(profileData.avg_depth).toFixed(1) + "m",
+                    position: "insideTopRight",
+                    fill: "#9a4f0f"
+                }
+            }));
+        }
+
+        if (profileData.max_sample) {
+            children.push(h(ReferenceDot, {
+                key: "max",
+                x: profileData.max_sample.time,
+                y: profileData.max_sample.depth,
+                r: 5,
+                fill: "#c9342c",
+                stroke: "#fff",
+                label: {
+                    value: "최대수심",
+                    position: "top",
+                    fill: "#9f241f"
+                }
+            }));
+        }
+
+        return h(
+            ResponsiveContainer,
+            { width: "100%", height: "100%" },
+            h(LineChart, { data: profileData.samples, margin: { top: 24, right: 28, left: 4, bottom: 16 } }, children)
+        );
+    }
+
+    window.ReactDOM.createRoot(chartNode).render(h(DepthProfileChart));
+    if (fallbackNode) {
+        fallbackNode.style.display = "none";
+    }
+})();
+</script>
+{% endif %}
 
 {% endblock %}

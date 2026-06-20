@@ -650,6 +650,7 @@ def _row_to_import_dive(
     if exit_time is None and entry_time is not None and dive_time is not None:
         exit_time = _calculate_exit_time(entry_time, dive_time)
         warnings.append("출수시각 자동 계산")
+    profile_samples = _stringify_value(_row_value(row, mapping.get("tank_profile_data"))) or None
 
     return ImportDive(
         source=parser_name,
@@ -669,6 +670,7 @@ def _row_to_import_dive(
         latitude=latitude,
         longitude=longitude,
         site_name=site_name or None,
+        profile_samples=profile_samples,
         confidence=confidence,
         warnings=warnings,
         raw={key: _stringify_value(row[key]) for key in row.keys()} | {

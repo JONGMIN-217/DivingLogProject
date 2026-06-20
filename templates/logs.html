@@ -70,6 +70,15 @@
     cursor: pointer;
 }
 
+.type-filter-label {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 8px;
+    color: #64748b;
+    font-size: 14px;
+    font-weight: 700;
+}
+
 .type-filter button.active {
     background: #2364d2;
     color: #fff;
@@ -355,9 +364,11 @@
     </form>
 
     <div class="type-filter" aria-label="로그 유형 필터">
+        <span class="type-filter-label">다이브 유형</span>
         <button type="button" data-point-type-filter="ALL" class="{% if filters.point_type == 'ALL' %}active{% endif %}">전체</button>
         <button type="button" data-point-type-filter="OCEAN" class="{% if filters.point_type == 'OCEAN' %}active{% endif %}">해양</button>
         <button type="button" data-point-type-filter="POOL" class="{% if filters.point_type == 'POOL' %}active{% endif %}">수영장</button>
+        <button type="button" data-point-type-filter="GHOST" class="{% if filters.point_type == 'GHOST' %}active{% endif %}">유령 로그</button>
     </div>
 
     <p class="result-summary">총 <span id="visibleLogCount">{{ logs|length }}</span>개 로그</p>
@@ -367,6 +378,8 @@
             전체선택
         </label>
         <button class="btn btn-danger" type="submit" form="bulkDeleteForm" onclick="return confirmSelectedLogs();">선택삭제</button>
+        <button class="btn" type="button" id="clearVisibleSelection">전체 해제</button>
+        <a class="btn" href="/logs?point_type=GHOST">유령 로그 보기</a>
         <a class="btn btn-danger" href="/logs/delete-all-confirm">전체 로그 삭제</a>
         {% if request.session.get("is_admin") %}
         <a class="btn" href="/admin/recalculate-dive-numbers">다이브 번호 재정렬</a>
@@ -389,9 +402,12 @@
                 <th>유형</th>
                 <th>버디</th>
                 <th>최대수심</th>
+                <th>평균수심</th>
+                <th>수온</th>
                 <th>입수</th>
                 <th>출수</th>
                 <th>다이브타임</th>
+                <th>메모</th>
                 <th>관리</th>
             </tr>
 
@@ -402,6 +418,7 @@
             {% set country = region.country if region else none %}
             <tr class="log-row"
                 data-point-type="{{ point.point_type if point else '' }}"
+                data-is-ghost="{% if log.dive_time is none or log.dive_time == 0 %}1{% else %}0{% endif %}"
                 data-detail-url="/log/{{ log.id }}"
                 data-edit-url="/log/{{ log.id }}/edit"
                 data-can-edit="{% if request.session.get('is_admin') or log.user_id == request.session.get('user_id') %}1{% else %}0{% endif %}"
@@ -411,7 +428,7 @@
                 data-exit-time="{{ log.exit_time.strftime('%H:%M') if log.exit_time else '-' }}"
                 data-dive-time="{{ log.dive_time if log.dive_time is not none else '-' }}{% if log.dive_time is not none %} 분{% endif %}"
                 data-max-depth="{{ log.max_depth if log.max_depth is not none else '-' }}{% if log.max_depth is not none %} m{% endif %}"
-                data-avg-depth="{{ log.avg_depth if log.avg_depth is not none else '-' }}{% if log.avg_depth is not none %} m{% endif %}"
+                data-avg-depth="{% if log.avg_depth is not none %}{{ '%.1f'|format(log.avg_depth) }} m{% else %}-{% endif %}"
                 data-water-temp="{{ log.water_temp if log.water_temp is not none else '-' }}{% if log.water_temp is not none %} ℃{% endif %}"
                 data-visibility="{{ log.visibility if log.visibility is not none else '-' }}"
                 data-point-name="{{ point.name if point else '-' }}"
@@ -432,9 +449,12 @@
                 <td>{{ '수영장' if point and point.point_type == 'POOL' else '해양' if point else '-' }}</td>
                 <td>{{ log.buddy if log.buddy else '-' }}</td>
                 <td>{{ log.max_depth if log.max_depth is not none else '-' }}{% if log.max_depth is not none %} m{% endif %}</td>
+                <td>{% if log.avg_depth is not none %}{{ "%.1f"|format(log.avg_depth) }} m{% else %}-{% endif %}</td>
+                <td>{{ log.water_temp if log.water_temp is not none else '-' }}{% if log.water_temp is not none %} ℃{% endif %}</td>
                 <td>{{ log.entry_time.strftime('%H:%M') if log.entry_time else '-' }}</td>
                 <td>{{ log.exit_time.strftime('%H:%M') if log.exit_time else '-' }}</td>
                 <td>{{ log.dive_time if log.dive_time is not none else '-' }}{% if log.dive_time is not none %} 분{% endif %}</td>
+                <td>{{ log.note if log.note else '-' }}</td>
                 <td class="actions">
                     {% if request.session.get("is_admin") or log.user_id == request.session.get("user_id") %}
                     <a class="btn" href="/log/{{ log.id }}/edit">수정</a>
@@ -448,11 +468,11 @@
             </tr>
             {% else %}
             <tr>
-                <td class="empty-row" colspan="14">조건에 맞는 로그가 없습니다.</td>
+                <td class="empty-row" colspan="17">조건에 맞는 로그가 없습니다.</td>
             </tr>
             {% endfor %}
             <tr id="clientEmptyRow" style="display:none;">
-                <td class="empty-row" colspan="14">조건에 맞는 로그가 없습니다.</td>
+                <td class="empty-row" colspan="17">조건에 맞는 로그가 없습니다.</td>
             </tr>
         </table>
     </div>
@@ -506,6 +526,8 @@ const areaSelect = document.getElementById("area_id");
 const pointSelect = document.getElementById("point_id");
 const selectAllLogControls = Array.from(document.querySelectorAll(".select-all-logs"));
 const logCheckboxes = Array.from(document.querySelectorAll(".log-checkbox"));
+const clearVisibleSelectionButton = document.getElementById("clearVisibleSelection");
+const bulkDeleteForm = document.getElementById("bulkDeleteForm");
 const pointTypeInput = document.getElementById("pointTypeInput");
 const diveTimeFilterSelect = document.getElementById("dive_time_filter");
 const minDiveTimeInput = document.getElementById("min_dive_time");
@@ -648,7 +670,7 @@ function applyPointTypeFilter(pointType, updateUrl = true){
     let count = 0;
     logRows.forEach(row => {
         const rowType = row.dataset.pointType || "";
-        const visible = normalizedType === "ALL" || rowType === normalizedType;
+        const visible = normalizedType === "ALL" || rowType === normalizedType || (normalizedType === "GHOST" && row.dataset.isGhost === "1");
         row.style.display = visible ? "" : "none";
         if(!visible){
             row.querySelectorAll(".log-checkbox").forEach(checkbox => {
@@ -695,6 +717,17 @@ typeFilterButtons.forEach(button => {
 });
 
 applyPointTypeFilter(pointTypeInput ? pointTypeInput.value : "ALL", false);
+
+if(clearVisibleSelectionButton){
+    clearVisibleSelectionButton.addEventListener("click", () => {
+        logCheckboxes.forEach(checkbox => {
+            checkbox.checked = false;
+        });
+        selectAllLogControls.forEach(control => {
+            control.checked = false;
+        });
+    });
+}
 
 function setDetailText(element, value){
     if(element){
@@ -821,6 +854,16 @@ function confirmSelectedLogs(){
     if(selectedCount === 0){
         alert("삭제할 로그를 선택하세요.");
         return false;
+    }
+    const currentType = pointTypeInput ? pointTypeInput.value : "ALL";
+    if(currentType === "GHOST"){
+        if(bulkDeleteForm){
+            bulkDeleteForm.action = "/logs/delete-ghost-selected";
+        }
+        return confirm(`선택한 ${selectedCount}개의 유령 로그를 삭제하시겠습니까?`);
+    }
+    if(bulkDeleteForm){
+        bulkDeleteForm.action = "/logs/delete-selected";
     }
     return confirm(`선택한 로그 ${selectedCount}개를 삭제하시겠습니까?`);
 }

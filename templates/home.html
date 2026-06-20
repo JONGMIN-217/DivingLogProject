@@ -37,7 +37,10 @@
 }
 
 .summary-card {
+    display: block;
     padding: 16px;
+    color: inherit;
+    text-decoration: none;
 }
 
 .summary-label {
@@ -207,6 +210,11 @@
             <div class="summary-label">총 다이빙 시간(해양)</div>
             <div class="summary-value">{{ total_dive_time_display }}</div>
         </div>
+
+        <a class="summary-card" href="/logs?point_type=GHOST">
+            <div class="summary-label">검토 필요 로그</div>
+            <div class="summary-value">유령 로그 {{ ghost_log_count or 0 }}개</div>
+        </a>
     </section>
 
     <section class="menu-grid">
