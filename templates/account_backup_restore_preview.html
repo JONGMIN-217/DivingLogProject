@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block head %}
+<style>
+.restore-page {
+    max-width: 980px;
+}
+.warning-box {
+    border: 1px solid #dc2626;
+    border-radius: 8px;
+    background: #fef2f2;
+    padding: 14px;
+    color: #991b1b;
+    margin: 16px 0;
+}
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+}
+.summary-card {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #fff;
+    padding: 14px;
+}
+.summary-label {
+    color: #64748b;
+    font-size: 13px;
+}
+.summary-value {
+    margin-top: 6px;
+    font-size: 24px;
+    font-weight: 700;
+}
+.restore-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+}
+.restore-table th,
+.restore-table td {
+    border-bottom: 1px solid #e5e7eb;
+    padding: 9px;
+    text-align: left;
+}
+.restore-table th {
+    background: #f8fafc;
+}
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 18px;
+}
+.btn {
+    display: inline-block;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    background: #fff;
+    color: #222;
+    font: inherit;
+    text-decoration: none;
+    cursor: pointer;
+}
+.btn-danger {
+    border-color: #dc2626;
+    background: #dc2626;
+    color: #fff;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="restore-page">
+    <h2>복구 미리보기</h2>
+    <p>백업 생성 시각: {{ metadata.created_at or '정보 없음' }}</p>
+    <p>복구 범위: {% if restore_scope == 'all' %}전체 데이터{% else %}내 데이터{% endif %}</p>
+
+    <div class="summary-grid">
+        <div class="summary-card">
+            <div class="summary-label">전체 처리 대상</div>
+            <div class="summary-value">{{ total_rows }}건</div>
+        </div>
+        <div class="summary-card">
+            <div class="summary-label">추가 예상</div>
+            <div class="summary-value">{{ total_insert }}건</div>
+        </div>
+        <div class="summary-card">
+            <div class="summary-label">갱신 예상</div>
+            <div class="summary-value">{{ total_update }}건</div>
+        </div>
+        <div class="summary-card">
+            <div class="summary-label">Import 기록</div>
+            <div class="summary-value">{{ import_record_count }}건</div>
+        </div>
+        <div class="summary-card">
+            <div class="summary-label">Import 배치</div>
+            <div class="summary-value">{{ import_batch_count }}개</div>
+        </div>
+    </div>
+
+    <table class="restore-table">
+        <thead>
+            <tr>
+                <th>대상</th>
+                <th>전체</th>
+                <th>추가</th>
+                <th>갱신</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in summary.values() %}
+            <tr>
+                <td>{{ item.label }}</td>
+                <td>{{ item.total }}</td>
+                <td>{{ item.insert }}</td>
+                <td>{{ item.update }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="warning-box">
+        복구를 실행하면 같은 ID의 기존 데이터가 백업 파일의 값으로 갱신됩니다. 이 작업은 자동으로 되돌릴 수 없습니다.
+        {% if restore_scope == 'all' %}
+        전체 데이터 복구는 관리자만 실행할 수 있으며 모든 사용자 데이터에 영향을 줄 수 있습니다.
+        {% else %}
+        일반 사용자는 본인 데이터만 복구됩니다.
+        {% endif %}
+    </div>
+
+    <div class="actions">
+        <form action="/account/backup/restore-confirm" method="post">
+            <input type="hidden" name="restore_id" value="{{ restore_id }}">
+            <input type="hidden" name="restore_suffix" value="{{ restore_suffix }}">
+            <input type="hidden" name="restore_scope" value="{{ restore_scope }}">
+            <button class="btn btn-danger" type="submit">경고를 확인했고 복구를 실행합니다</button>
+        </form>
+        <a class="btn" href="/account/backup">취소</a>
+    </div>
+</div>
+{% endblock %}

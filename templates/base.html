@@ -63,6 +63,7 @@
             <div class="nav-group">
                 <div class="nav-group-title">계정</div>
                 <a class="nav-link" href="/account/settings">계정관리</a>
+                <a class="nav-link" href="/account/backup">백업/복구</a>
             </div>
             {% endif %}
 
@@ -116,6 +117,7 @@
             <a href="/trips">투어</a>
             {% if request.session.get("user_id") %}
             <a href="/account/settings">계정관리</a>
+            <a href="/account/backup">백업/복구</a>
             {% endif %}
             {% if request.session.get("is_admin") %}
             <a class="admin-link" href="/admin">관리자 대시보드 <span class="admin-badge">관리자</span></a>

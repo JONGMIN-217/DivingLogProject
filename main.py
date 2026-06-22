@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request, Form
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import and_, func, inspect, or_, text
 from sqlalchemy.orm import joinedload
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -9,6 +9,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from datetime import date, datetime
 import hashlib
 import json
+import zipfile
 
 from app.auth import hash_password, verify_password
 from app.database import Base, SessionLocal, engine
@@ -49,6 +50,18 @@ from app.services.import_duplicate_service import (
     import_batch_duplicate_summary as build_import_batch_duplicate_summary,
 )
 from app.services.time_format_service import format_dive_duration
+from app.services.backup_service import (
+    apply_restore,
+    backup_json_bytes,
+    backup_zip_bytes,
+    build_backup_payload,
+    filter_payload_for_restore,
+    parse_backup_file,
+    payload_photo_paths,
+    preview_restore,
+    restore_import_batches,
+    restore_photos_from_zip,
+)
 
 from fastapi import UploadFile, File
 import uuid
@@ -69,6 +82,8 @@ IMPORT_UPLOAD_DIR = UPLOAD_DIR / "imports"
 IMPORT_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 TRIP_UPLOAD_DIR = UPLOAD_DIR / "trips"
 TRIP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+BACKUP_UPLOAD_DIR = UPLOAD_DIR / "backups"
+BACKUP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_IMAGE_EXTENSIONS = {
     ".jpg": "image/jpeg",
@@ -80,6 +95,7 @@ ALLOWED_IMAGE_EXTENSIONS = {
 ALLOWED_IMPORT_EXTENSIONS = {".csv", ".xml", ".uddf", ".db"}
 MAX_IMAGE_UPLOAD_SIZE = 5 * 1024 * 1024
 MAX_IMPORT_UPLOAD_SIZE = settings.max_import_file_size_mb * 1024 * 1024
+MAX_BACKUP_UPLOAD_SIZE = 1024 * 1024 * 1024
 IMPORT_PREVIEW_PAGE_SIZE = 20
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
@@ -1842,6 +1858,170 @@ def update_account_settings(
 
         db.commit()
         return RedirectResponse(url=f"/account/settings?{urlencode({'message': message})}", status_code=303)
+    finally:
+        db.close()
+
+
+@app.get("/account/backup")
+def account_backup_page(request: Request):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        if not current_user:
+            return login_required_redirect(request)
+
+        return templates.TemplateResponse(
+            "account_backup.html",
+            {
+                "request": request,
+                "current_user": current_user,
+                "is_admin": current_user.is_admin,
+            },
+        )
+    finally:
+        db.close()
+
+
+@app.get("/account/backup/download")
+def download_backup(
+    request: Request,
+    backup_format: str = "json",
+    include_photos: str = "",
+    scope: str = "user",
+):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        if not current_user:
+            return login_required_redirect(request)
+
+        include_all = current_user.is_admin and scope == "all"
+        payload = build_backup_payload(db, current_user, include_all, IMPORT_UPLOAD_DIR)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        if backup_format == "zip":
+            body = backup_zip_bytes(payload, UPLOAD_DIR, include_photos == "1")
+            filename = f"divinglog_backup_{timestamp}.zip"
+            media_type = "application/zip"
+        else:
+            body = backup_json_bytes(payload)
+            filename = f"divinglog_backup_{timestamp}.json"
+            media_type = "application/json; charset=utf-8"
+
+        return Response(
+            content=body,
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    finally:
+        db.close()
+
+
+@app.post("/account/backup/restore-preview")
+def backup_restore_preview(request: Request, backup_file: UploadFile = File(...), scope: str = Form("user")):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        if not current_user:
+            return login_required_redirect(request)
+
+        original_filename = Path(backup_file.filename or "").name
+        suffix = Path(original_filename).suffix.lower()
+        if suffix not in {".json", ".zip"}:
+            return RedirectResponse(
+                url=f"/account/backup?{urlencode({'error': 'JSON 또는 ZIP 백업 파일만 업로드할 수 있습니다.'})}",
+                status_code=303,
+            )
+
+        restore_id = uuid.uuid4().hex
+        restore_path = BACKUP_UPLOAD_DIR / f"restore_{restore_id}{suffix}"
+        error = save_upload_file(backup_file, restore_path, MAX_BACKUP_UPLOAD_SIZE)
+        if error:
+            return RedirectResponse(url=f"/account/backup?{urlencode({'error': error})}", status_code=303)
+
+        try:
+            payload = parse_backup_file(restore_path)
+        except (OSError, ValueError, json.JSONDecodeError, KeyError, zipfile.BadZipFile) as exc:
+            restore_path.unlink(missing_ok=True)
+            return RedirectResponse(
+                url=f"/account/backup?{urlencode({'error': f'백업 파일을 읽을 수 없습니다: {exc}'})}",
+                status_code=303,
+            )
+
+        restore_all = current_user.is_admin and scope == "all"
+        filtered_payload = filter_payload_for_restore(payload, current_user, restore_all)
+        summary = preview_restore(db, filtered_payload)
+        total_insert = sum(item["insert"] for item in summary.values())
+        total_update = sum(item["update"] for item in summary.values())
+        total_rows = sum(item["total"] for item in summary.values())
+
+        return templates.TemplateResponse(
+            "account_backup_restore_preview.html",
+            {
+                "request": request,
+                "restore_id": restore_id,
+                "restore_suffix": suffix,
+                "restore_scope": "all" if restore_all else "user",
+                "is_admin": current_user.is_admin,
+                "metadata": payload.get("metadata", {}),
+                "summary": summary,
+                "total_insert": total_insert,
+                "total_update": total_update,
+                "total_rows": total_rows,
+                "import_record_count": len(filtered_payload.get("import_records", [])),
+                "import_batch_count": len(filtered_payload.get("import_batches", [])),
+            },
+        )
+    finally:
+        db.close()
+
+
+@app.post("/account/backup/restore-confirm")
+def backup_restore_confirm(
+    request: Request,
+    restore_id: str = Form(...),
+    restore_suffix: str = Form(...),
+    restore_scope: str = Form("user"),
+):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        if not current_user:
+            return login_required_redirect(request)
+
+        suffix = restore_suffix if restore_suffix in {".json", ".zip"} else ".json"
+        restore_path = BACKUP_UPLOAD_DIR / f"restore_{restore_id}{suffix}"
+        if not restore_path.exists():
+            return RedirectResponse(
+                url=f"/account/backup?{urlencode({'error': '복구 미리보기 파일을 찾을 수 없습니다.'})}",
+                status_code=303,
+            )
+
+        try:
+            payload = parse_backup_file(restore_path)
+            restore_all = current_user.is_admin and restore_scope == "all"
+            filtered_payload = filter_payload_for_restore(payload, current_user, restore_all)
+            summary = apply_restore(db, filtered_payload)
+            restored_photos = restore_photos_from_zip(restore_path, UPLOAD_DIR, payload_photo_paths(filtered_payload))
+            restored_import_batches = restore_import_batches(filtered_payload, IMPORT_UPLOAD_DIR) if restore_all else 0
+            if restore_all:
+                recalculate_all_dive_numbers(db)
+            else:
+                recalculate_dive_numbers(db, current_user.id)
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            return RedirectResponse(
+                url=f"/account/backup?{urlencode({'error': f'복구 중 오류가 발생했습니다: {exc}'})}",
+                status_code=303,
+            )
+        finally:
+            restore_path.unlink(missing_ok=True)
+
+        total_insert = sum(item["insert"] for item in summary.values())
+        total_update = sum(item["update"] for item in summary.values())
+        message = f"복구가 완료되었습니다. 추가 {total_insert}건, 갱신 {total_update}건, 사진 {restored_photos}개, Import 배치 {restored_import_batches}개를 처리했습니다."
+        return RedirectResponse(url=f"/account/backup?{urlencode({'message': message})}", status_code=303)
     finally:
         db.close()
 
