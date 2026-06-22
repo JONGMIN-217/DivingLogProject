@@ -24,6 +24,7 @@ from app.models import (
     TripParticipant,
     TripPhoto,
     User,
+    UserSettings,
 )
 
 from app.routers import regions
@@ -135,7 +136,7 @@ class LoginRequiredMiddleware(BaseHTTPMiddleware):
                 next_url = request.url.path
                 return RedirectResponse(url=f"/login?next={next_url}", status_code=303)
 
-            request.session["username"] = user.username
+            request.session["username"] = user_display_name(user)
             request.session["is_admin"] = user.is_admin
         finally:
             db.close()
@@ -209,6 +210,29 @@ def get_current_user(request: Request, db):
     return db.query(User).filter(User.id == user_id).first()
 
 
+def user_display_name(user: User | None):
+    if not user:
+        return ""
+    return (user.nickname or user.username or "").strip()
+
+
+def get_or_create_user_settings(db, user: User):
+    settings = db.query(UserSettings).filter(UserSettings.user_id == user.id).first()
+    if settings:
+        return settings
+
+    settings = UserSettings(user_id=user.id)
+    db.add(settings)
+    db.flush()
+    return settings
+
+
+def ghost_log_threshold_for_user(db, user: User | None):
+    if not user:
+        return 0
+    return get_or_create_user_settings(db, user).ghost_log_threshold_minutes or 0
+
+
 def admin_required_redirect(request: Request, db):
     current_user = get_current_user(request, db)
     if not current_user:
@@ -239,8 +263,9 @@ def apply_visible_logs(query, user):
     return query.filter(visible_log_condition(user))
 
 
-def ghost_log_condition():
-    return or_(DiveLog.dive_time.is_(None), DiveLog.dive_time == 0)
+def ghost_log_condition(threshold_minutes: int = 0):
+    threshold = max(int(threshold_minutes or 0), 0)
+    return or_(DiveLog.dive_time.is_(None), DiveLog.dive_time <= threshold)
 
 
 def logs_redirect_url(return_url: str | None = None, **params):
@@ -1466,6 +1491,9 @@ def ensure_user_columns():
     }
     required_columns = {
         "is_admin": "BOOLEAN NOT NULL DEFAULT 0",
+        "nickname": "VARCHAR",
+        "email": "VARCHAR",
+        "created_at": "DATETIME",
     }
 
     with engine.begin() as connection:
@@ -1474,6 +1502,8 @@ def ensure_user_columns():
                 connection.execute(
                     text(f"ALTER TABLE users ADD COLUMN {column_name} {column_type}")
                 )
+        connection.execute(text("UPDATE users SET nickname = username WHERE nickname IS NULL OR nickname = ''"))
+        connection.execute(text("UPDATE users SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL"))
 
 
 def ensure_region_country_columns():
@@ -1636,15 +1666,17 @@ def register(
         is_first_user = db.query(func.count(User.id)).scalar() == 0
         user = User(
             username=username,
+            nickname=username,
             password_hash=hash_password(password),
             is_admin=is_first_user,
+            created_at=datetime.now(),
         )
         db.add(user)
         db.commit()
         db.refresh(user)
 
         request.session["user_id"] = user.id
-        request.session["username"] = user.username
+        request.session["username"] = user_display_name(user)
         request.session["is_admin"] = user.is_admin
 
         return RedirectResponse(url="/", status_code=303)
@@ -1690,7 +1722,7 @@ def login(
             )
 
         request.session["user_id"] = user.id
-        request.session["username"] = user.username
+        request.session["username"] = user_display_name(user)
         request.session["is_admin"] = user.is_admin
 
         if not next_url.startswith("/") or next_url.startswith("//"):
@@ -1705,6 +1737,113 @@ def login(
 def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/", status_code=303)
+
+
+@app.get("/account/settings")
+def account_settings_page(request: Request):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        if not current_user:
+            return login_required_redirect(request)
+
+        settings = get_or_create_user_settings(db, current_user)
+        db.commit()
+        return templates.TemplateResponse(
+            "account_settings.html",
+            {
+                "request": request,
+                "user": current_user,
+                "settings": settings,
+                "ghost_threshold_options": [0, 1, 3, 5],
+                "per_page_options": [25, 50, 100],
+                "log_filter_options": [
+                    {"value": "ALL", "label": "전체"},
+                    {"value": "OCEAN", "label": "해양"},
+                    {"value": "POOL", "label": "수영장"},
+                ],
+            },
+        )
+    finally:
+        db.close()
+
+
+@app.post("/account/settings")
+def update_account_settings(
+    request: Request,
+    action: str = Form(...),
+    nickname: str = Form(""),
+    current_password: str = Form(""),
+    new_password: str = Form(""),
+    new_password_confirm: str = Form(""),
+    ghost_log_threshold_minutes: int = Form(0),
+    bcd: str = Form(""),
+    regulator: str = Form(""),
+    dive_computer: str = Form(""),
+    suit: str = Form(""),
+    fins: str = Form(""),
+    mask: str = Form(""),
+    tank_type: str = Form(""),
+    default_weight: str = Form(""),
+    default_log_per_page: int = Form(25),
+    default_log_filter: str = Form("ALL"),
+):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        if not current_user:
+            return login_required_redirect(request)
+
+        settings = get_or_create_user_settings(db, current_user)
+        if action == "basic":
+            current_user.nickname = nickname.strip() or current_user.username
+            request.session["username"] = user_display_name(current_user)
+            message = "기본 정보를 저장했습니다."
+        elif action == "password":
+            if not verify_password(current_password, current_user.password_hash):
+                return RedirectResponse(
+                    url=f"/account/settings?{urlencode({'error': '현재 비밀번호가 일치하지 않습니다.'})}",
+                    status_code=303,
+                )
+            if not new_password:
+                return RedirectResponse(
+                    url=f"/account/settings?{urlencode({'error': '새 비밀번호를 입력하세요.'})}",
+                    status_code=303,
+                )
+            if new_password != new_password_confirm:
+                return RedirectResponse(
+                    url=f"/account/settings?{urlencode({'error': '새 비밀번호 확인이 일치하지 않습니다.'})}",
+                    status_code=303,
+                )
+            current_user.password_hash = hash_password(new_password)
+            message = "비밀번호를 변경했습니다."
+        elif action == "log":
+            settings.ghost_log_threshold_minutes = ghost_log_threshold_minutes if ghost_log_threshold_minutes in (0, 1, 3, 5) else 0
+            message = "로그 설정을 저장했습니다."
+        elif action == "equipment":
+            settings.bcd = bcd.strip() or None
+            settings.regulator = regulator.strip() or None
+            settings.dive_computer = dive_computer.strip() or None
+            settings.suit = suit.strip() or None
+            settings.fins = fins.strip() or None
+            settings.mask = mask.strip() or None
+            settings.tank_type = tank_type.strip() or None
+            settings.default_weight = default_weight.strip() or None
+            message = "장비 설정을 저장했습니다."
+        elif action == "display":
+            settings.default_log_per_page = default_log_per_page if default_log_per_page in (25, 50, 100) else 25
+            settings.default_log_filter = default_log_filter if default_log_filter in ("ALL", "OCEAN", "POOL") else "ALL"
+            message = "표시 설정을 저장했습니다."
+        else:
+            return RedirectResponse(
+                url=f"/account/settings?{urlencode({'error': '알 수 없는 설정 요청입니다.'})}",
+                status_code=303,
+            )
+
+        db.commit()
+        return RedirectResponse(url=f"/account/settings?{urlencode({'message': message})}", status_code=303)
+    finally:
+        db.close()
 
 
 @app.get("/friends")
@@ -3407,7 +3546,7 @@ def delete_selected_ghost_logs(
         logs = (
             editable_log_query(db, current_user)
             .filter(DiveLog.id.in_(log_ids))
-            .filter(ghost_log_condition())
+            .filter(ghost_log_condition(ghost_log_threshold_for_user(db, current_user)))
             .all()
         )
         affected_user_ids = {log.user_id for log in logs}
@@ -3420,7 +3559,7 @@ def delete_selected_ghost_logs(
 
         remaining_ghost_count = (
             editable_log_query(db, current_user)
-            .filter(ghost_log_condition())
+            .filter(ghost_log_condition(ghost_log_threshold_for_user(db, current_user)))
             .count()
         )
         return RedirectResponse(
@@ -3718,7 +3857,9 @@ def home(request: Request):
         total_dives = ocean_logs_query.with_entities(func.count(DiveLog.id)).scalar()
         pool_dives = pool_logs_query.with_entities(func.count(DiveLog.id)).scalar()
         total_stored_logs = visible_logs_query.with_entities(func.count(DiveLog.id)).scalar()
-        ghost_log_count = visible_logs_query.filter(ghost_log_condition()).with_entities(func.count(DiveLog.id)).scalar()
+        ghost_log_count = visible_logs_query.filter(
+            ghost_log_condition(ghost_log_threshold_for_user(db, current_user))
+        ).with_entities(func.count(DiveLog.id)).scalar()
         total_dive_time = ocean_logs_query.with_entities(func.sum(DiveLog.dive_time)).scalar()
         total_dive_time_display = format_dive_duration(total_dive_time)
         recent_logs = (
@@ -3784,18 +3925,21 @@ def all_logs(request: Request):
     db = SessionLocal()
     try:
         current_user = get_current_user(request, db)
+        account_settings = get_or_create_user_settings(db, current_user) if current_user else None
+        default_point_type = account_settings.default_log_filter if account_settings else "ALL"
+        default_per_page = str(account_settings.default_log_per_page if account_settings else 25)
         filters = {
             "dive_date": request.query_params.get("dive_date", "").strip(),
             "country_id": request.query_params.get("country_id", "").strip(),
             "region_id": request.query_params.get("region_id", "").strip(),
             "area_id": request.query_params.get("area_id", "").strip(),
             "point_id": request.query_params.get("point_id", "").strip(),
-            "point_type": (request.query_params.get("point_type") or request.query_params.get("type") or "all").strip().upper(),
+            "point_type": (request.query_params.get("point_type") or request.query_params.get("type") or default_point_type).strip().upper(),
             "buddy": request.query_params.get("buddy", "").strip(),
             "sort": request.query_params.get("sort", "date").strip(),
             "direction": request.query_params.get("direction", "desc").strip(),
             "page": request.query_params.get("page", "1").strip(),
-            "per_page": request.query_params.get("per_page", "25").strip(),
+            "per_page": request.query_params.get("per_page", default_per_page).strip(),
         }
         if filters["point_type"] not in ("ALL", "OCEAN", "POOL", "GHOST"):
             filters["point_type"] = "ALL"
@@ -3847,7 +3991,7 @@ def all_logs(request: Request):
         if filters["point_type"] in ("OCEAN", "POOL"):
             query = query.filter(DivePoint.point_type == filters["point_type"])
         elif filters["point_type"] == "GHOST":
-            query = query.filter(ghost_log_condition())
+            query = query.filter(ghost_log_condition(ghost_log_threshold_for_user(db, current_user)))
 
         if filters["buddy"]:
             query = query.filter(DiveLog.buddy.ilike(f"%{filters['buddy']}%"))

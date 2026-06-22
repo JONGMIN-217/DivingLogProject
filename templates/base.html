@@ -59,6 +59,13 @@
                 <a class="nav-link" href="/stats">통계</a>
             </div>
 
+            {% if request.session.get("user_id") %}
+            <div class="nav-group">
+                <div class="nav-group-title">계정</div>
+                <a class="nav-link" href="/account/settings">계정관리</a>
+            </div>
+            {% endif %}
+
             {% if request.session.get("is_admin") %}
             <div class="nav-group admin-group">
                 <div class="nav-group-title">관리자</div>
@@ -107,6 +114,9 @@
             <a href="/import">로그 가져오기</a>
             <a href="/friends">친구 관리</a>
             <a href="/trips">투어</a>
+            {% if request.session.get("user_id") %}
+            <a href="/account/settings">계정관리</a>
+            {% endif %}
             {% if request.session.get("is_admin") %}
             <a class="admin-link" href="/admin">관리자 대시보드 <span class="admin-badge">관리자</span></a>
             <a class="admin-link" href="/admin/divepoints">포인트 관리 <span class="admin-badge">관리자</span></a>

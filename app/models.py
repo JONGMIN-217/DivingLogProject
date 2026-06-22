@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Integer, String, ForeignKey, Float, Date, Time, Text
+from sqlalchemy import Boolean, Column, Integer, String, ForeignKey, Float, Date, Time, Text, DateTime
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -50,8 +50,33 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True, nullable=False)
+    nickname = Column(String, nullable=True)
+    email = Column(String, nullable=True)
     password_hash = Column(String, nullable=False)
     is_admin = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, nullable=True)
+
+    settings = relationship("UserSettings", back_populates="user", uselist=False)
+
+
+class UserSettings(Base):
+    __tablename__ = "user_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    ghost_log_threshold_minutes = Column(Integer, nullable=False, default=0)
+    bcd = Column(String, nullable=True)
+    regulator = Column(String, nullable=True)
+    dive_computer = Column(String, nullable=True)
+    suit = Column(String, nullable=True)
+    fins = Column(String, nullable=True)
+    mask = Column(String, nullable=True)
+    tank_type = Column(String, nullable=True)
+    default_weight = Column(String, nullable=True)
+    default_log_per_page = Column(Integer, nullable=False, default=25)
+    default_log_filter = Column(String, nullable=False, default="ALL")
+
+    user = relationship("User", back_populates="settings")
 
 
 class Friend(Base):

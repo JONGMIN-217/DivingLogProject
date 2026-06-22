@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block head %}
+<style>
+.settings-page {
+    max-width: 980px;
+}
+
+.settings-grid {
+    display: grid;
+    gap: 16px;
+}
+
+.settings-card {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #fff;
+    padding: 18px;
+}
+
+.settings-card h3 {
+    margin: 0 0 14px;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+}
+
+.form-field label {
+    display: block;
+    margin-bottom: 6px;
+    color: #555;
+    font-size: 14px;
+}
+
+.form-field input,
+.form-field select {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    font: inherit;
+}
+
+.readonly-value {
+    padding: 8px 0;
+    font-weight: 700;
+}
+
+.settings-actions {
+    margin-top: 14px;
+}
+
+.btn {
+    display: inline-block;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    background: #fff;
+    color: #222;
+    font: inherit;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.btn-primary {
+    border-color: #2364d2;
+    background: #2364d2;
+    color: #fff;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="settings-page">
+    <h2>계정관리</h2>
+
+    <div class="settings-grid">
+        <section class="settings-card">
+            <h3>기본 정보</h3>
+            <form action="/account/settings" method="post">
+                <input type="hidden" name="action" value="basic">
+                <div class="form-grid">
+                    <div class="form-field">
+                        <label for="nickname">닉네임</label>
+                        <input type="text" id="nickname" name="nickname" value="{{ user.nickname or user.username }}">
+                    </div>
+                    <div class="form-field">
+                        <label>이메일</label>
+                        <div class="readonly-value">{{ user.email if user.email else '등록된 이메일 없음' }}</div>
+                    </div>
+                    <div class="form-field">
+                        <label>가입일</label>
+                        <div class="readonly-value">{{ user.created_at.strftime('%Y-%m-%d') if user.created_at else '정보 없음' }}</div>
+                    </div>
+                </div>
+                <div class="settings-actions">
+                    <button class="btn btn-primary" type="submit">기본 정보 저장</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="settings-card">
+            <h3>비밀번호 변경</h3>
+            <form action="/account/settings" method="post">
+                <input type="hidden" name="action" value="password">
+                <div class="form-grid">
+                    <div class="form-field">
+                        <label for="current_password">현재 비밀번호</label>
+                        <input type="password" id="current_password" name="current_password" autocomplete="current-password">
+                    </div>
+                    <div class="form-field">
+                        <label for="new_password">새 비밀번호</label>
+                        <input type="password" id="new_password" name="new_password" autocomplete="new-password">
+                    </div>
+                    <div class="form-field">
+                        <label for="new_password_confirm">새 비밀번호 확인</label>
+                        <input type="password" id="new_password_confirm" name="new_password_confirm" autocomplete="new-password">
+                    </div>
+                </div>
+                <div class="settings-actions">
+                    <button class="btn btn-primary" type="submit">비밀번호 변경</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="settings-card">
+            <h3>로그 설정</h3>
+            <form action="/account/settings" method="post">
+                <input type="hidden" name="action" value="log">
+                <div class="form-grid">
+                    <div class="form-field">
+                        <label for="ghost_log_threshold_minutes">유령 로그 기준 다이브타임</label>
+                        <select id="ghost_log_threshold_minutes" name="ghost_log_threshold_minutes">
+                            {% for option in ghost_threshold_options %}
+                            <option value="{{ option }}" {% if settings.ghost_log_threshold_minutes == option %}selected{% endif %}>{{ option }}분 이하</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="settings-actions">
+                    <button class="btn btn-primary" type="submit">로그 설정 저장</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="settings-card">
+            <h3>장비 설정</h3>
+            <form action="/account/settings" method="post">
+                <input type="hidden" name="action" value="equipment">
+                <div class="form-grid">
+                    <div class="form-field"><label for="bcd">BCD</label><input type="text" id="bcd" name="bcd" value="{{ settings.bcd or '' }}"></div>
+                    <div class="form-field"><label for="regulator">레귤레이터</label><input type="text" id="regulator" name="regulator" value="{{ settings.regulator or '' }}"></div>
+                    <div class="form-field"><label for="dive_computer">다이빙 컴퓨터</label><input type="text" id="dive_computer" name="dive_computer" value="{{ settings.dive_computer or '' }}"></div>
+                    <div class="form-field"><label for="suit">슈트</label><input type="text" id="suit" name="suit" value="{{ settings.suit or '' }}"></div>
+                    <div class="form-field"><label for="fins">핀</label><input type="text" id="fins" name="fins" value="{{ settings.fins or '' }}"></div>
+                    <div class="form-field"><label for="mask">마스크</label><input type="text" id="mask" name="mask" value="{{ settings.mask or '' }}"></div>
+                    <div class="form-field"><label for="tank_type">탱크 종류</label><input type="text" id="tank_type" name="tank_type" value="{{ settings.tank_type or '' }}"></div>
+                    <div class="form-field"><label for="default_weight">웨이트 기본값</label><input type="text" id="default_weight" name="default_weight" value="{{ settings.default_weight or '' }}"></div>
+                </div>
+                <div class="settings-actions">
+                    <button class="btn btn-primary" type="submit">장비 설정 저장</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="settings-card">
+            <h3>표시 설정</h3>
+            <form action="/account/settings" method="post">
+                <input type="hidden" name="action" value="display">
+                <div class="form-grid">
+                    <div class="form-field">
+                        <label for="default_log_per_page">전체 로그 기본 표시 개수</label>
+                        <select id="default_log_per_page" name="default_log_per_page">
+                            {% for option in per_page_options %}
+                            <option value="{{ option }}" {% if settings.default_log_per_page == option %}selected{% endif %}>{{ option }}개</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label for="default_log_filter">기본 로그 필터</label>
+                        <select id="default_log_filter" name="default_log_filter">
+                            {% for option in log_filter_options %}
+                            <option value="{{ option.value }}" {% if settings.default_log_filter == option.value %}selected{% endif %}>{{ option.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="settings-actions">
+                    <button class="btn btn-primary" type="submit">표시 설정 저장</button>
+                </div>
+            </form>
+        </section>
+    </div>
+</div>
+{% endblock %}
