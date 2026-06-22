@@ -3791,8 +3791,6 @@ def all_logs(request: Request):
             "area_id": request.query_params.get("area_id", "").strip(),
             "point_id": request.query_params.get("point_id", "").strip(),
             "point_type": (request.query_params.get("point_type") or request.query_params.get("type") or "all").strip().upper(),
-            "dive_time_filter": request.query_params.get("dive_time_filter", "all").strip(),
-            "min_dive_time": request.query_params.get("min_dive_time", "").strip(),
             "buddy": request.query_params.get("buddy", "").strip(),
             "sort": request.query_params.get("sort", "date").strip(),
             "direction": request.query_params.get("direction", "desc").strip(),
@@ -3807,10 +3805,6 @@ def all_logs(request: Request):
             per_page = 25
         filters["page"] = str(max(page, 1))
         filters["per_page"] = str(per_page)
-        if filters["dive_time_filter"] == "all" and filters["min_dive_time"]:
-            filters["dive_time_filter"] = "gt0" if filters["min_dive_time"] == "gt0" else "custom"
-        if filters["dive_time_filter"] not in ("all", "gt0", "5", "10", "20", "custom"):
-            filters["dive_time_filter"] = "custom" if parse_int_filter(filters["min_dive_time"]) is not None else "all"
         recalculate_after_log_changes(db, current_user)
         db.commit()
 
@@ -3855,18 +3849,6 @@ def all_logs(request: Request):
         elif filters["point_type"] == "GHOST":
             query = query.filter(ghost_log_condition())
 
-        if filters["dive_time_filter"] == "gt0":
-            query = query.filter(DiveLog.dive_time.isnot(None), DiveLog.dive_time > 0)
-        elif filters["dive_time_filter"] in ("5", "10", "20"):
-            query = query.filter(DiveLog.dive_time.isnot(None), DiveLog.dive_time >= int(filters["dive_time_filter"]))
-            filters["min_dive_time"] = filters["dive_time_filter"]
-        elif filters["dive_time_filter"] == "custom":
-            min_dive_time_filter = parse_int_filter(filters["min_dive_time"])
-            if min_dive_time_filter is not None:
-                query = query.filter(DiveLog.dive_time.isnot(None), DiveLog.dive_time >= min_dive_time_filter)
-            else:
-                filters["dive_time_filter"] = "all"
-
         if filters["buddy"]:
             query = query.filter(DiveLog.buddy.ilike(f"%{filters['buddy']}%"))
 
@@ -3877,18 +3859,31 @@ def all_logs(request: Request):
             "area": Area.name,
             "point": DivePoint.name,
             "buddy": DiveLog.buddy,
+            "dive_time": DiveLog.dive_time,
             "number": DiveLog.dive_number,
             "id": DiveLog.dive_number,
         }
         sort_column = sort_columns.get(filters["sort"], DiveLog.dive_date)
-        direction = filters["direction"] if filters["direction"] in ("asc", "desc") else "asc"
+        if filters["sort"] not in sort_columns:
+            filters["sort"] = "date"
+            sort_column = DiveLog.dive_date
+        direction = filters["direction"] if filters["direction"] in ("asc", "desc") else "desc"
         filters["direction"] = direction
         if filters["sort"] == "date":
             order_expressions = [
                 DiveLog.dive_date.asc() if direction == "asc" else DiveLog.dive_date.desc(),
                 DiveLog.entry_time.asc() if direction == "asc" else DiveLog.entry_time.desc(),
+                DiveLog.dive_time.asc() if direction == "asc" else DiveLog.dive_time.desc(),
                 DiveLog.exit_time.asc() if direction == "asc" else DiveLog.exit_time.desc(),
                 DiveLog.id.asc() if direction == "asc" else DiveLog.id.desc(),
+            ]
+        elif filters["sort"] == "dive_time":
+            order_expressions = [
+                DiveLog.dive_time.asc() if direction == "asc" else DiveLog.dive_time.desc(),
+                DiveLog.dive_date.desc(),
+                DiveLog.entry_time.desc(),
+                DiveLog.exit_time.desc(),
+                DiveLog.id.desc(),
             ]
         else:
             order_expression = sort_column.asc() if direction == "asc" else sort_column.desc()
@@ -3907,6 +3902,8 @@ def all_logs(request: Request):
                 str(request.url.path) + ("?" + str(request.url.query) if request.url.query else ""),
                 page=str(target_page),
                 per_page=str(target_per_page or per_page),
+                dive_time_filter=None,
+                min_dive_time=None,
                 message=None,
                 error=None,
             )
@@ -3933,6 +3930,13 @@ def all_logs(request: Request):
                 for number in range(page_window_start, page_window_end + 1)
             ],
         }
+        current_logs_url = logs_redirect_url(
+            str(request.url.path) + ("?" + str(request.url.query) if request.url.query else ""),
+            dive_time_filter=None,
+            min_dive_time=None,
+            message=None,
+            error=None,
+        )
 
         countries = db.query(Country).order_by(Country.name.asc()).all()
         return templates.TemplateResponse(
@@ -3942,6 +3946,7 @@ def all_logs(request: Request):
                 "logs": logs,
                 "filters": filters,
                 "pagination": pagination,
+                "current_logs_url": current_logs_url,
                 "countries": countries,
                 "message": request.query_params.get("message"),
                 "error": request.query_params.get("error"),

@@ -8,6 +8,8 @@ def _sort_key(log: DiveLog):
         log.dive_date or date.max,
         log.entry_time is None,
         log.entry_time or time.max,
+        log.dive_time is None,
+        log.dive_time if log.dive_time is not None else 10**9,
         log.exit_time is None,
         log.exit_time or time.max,
         log.id,

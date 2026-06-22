@@ -362,27 +362,11 @@
             </div>
 
             <div class="filter-field">
-                <label for="dive_time_filter">다이브타임</label>
-                <select id="dive_time_filter" name="dive_time_filter">
-                    <option value="all" {% if filters.dive_time_filter == "all" %}selected{% endif %}>전체</option>
-                    <option value="gt0" {% if filters.dive_time_filter == "gt0" %}selected{% endif %}>0분 제외</option>
-                    <option value="5" {% if filters.dive_time_filter == "5" %}selected{% endif %}>5분 이상</option>
-                    <option value="10" {% if filters.dive_time_filter == "10" %}selected{% endif %}>10분 이상</option>
-                    <option value="20" {% if filters.dive_time_filter == "20" %}selected{% endif %}>20분 이상</option>
-                    <option value="custom" {% if filters.dive_time_filter == "custom" %}selected{% endif %}>직접 입력</option>
-                </select>
-            </div>
-
-            <div class="filter-field" id="customDiveTimeField">
-                <label for="min_dive_time">최소 다이브타임(분)</label>
-                <input type="number" id="min_dive_time" name="min_dive_time" min="0" step="1" value="{{ filters.min_dive_time if filters.dive_time_filter == 'custom' else '' }}" placeholder="예: 15">
-            </div>
-
-            <div class="filter-field">
                 <label for="sort">정렬 기준</label>
                 <select id="sort" name="sort">
                     <option value="number" {% if filters.sort in ["number", "id"] %}selected{% endif %}>번호</option>
                     <option value="date" {% if filters.sort == "date" %}selected{% endif %}>날짜/입수시간</option>
+                    <option value="dive_time" {% if filters.sort == "dive_time" %}selected{% endif %}>다이브타임</option>
                     <option value="country" {% if filters.sort == "country" %}selected{% endif %}>국가</option>
                     <option value="region" {% if filters.sort == "region" %}selected{% endif %}>지역</option>
                     <option value="area" {% if filters.sort == "area" %}selected{% endif %}>세부지역</option>
@@ -467,7 +451,7 @@
     <div class="logs-layout">
     <section class="logs-list-panel">
     <form id="bulkDeleteForm" action="/logs/delete-selected" method="post">
-        <input type="hidden" name="return_url" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+        <input type="hidden" name="return_url" value="{{ current_logs_url }}">
     </form>
     <div class="logs-table-wrap">
         <table class="logs-table">
@@ -615,9 +599,6 @@ const logCheckboxes = Array.from(document.querySelectorAll(".log-checkbox"));
 const clearVisibleSelectionButton = document.getElementById("clearVisibleSelection");
 const bulkDeleteForm = document.getElementById("bulkDeleteForm");
 const pointTypeInput = document.getElementById("pointTypeInput");
-const diveTimeFilterSelect = document.getElementById("dive_time_filter");
-const minDiveTimeInput = document.getElementById("min_dive_time");
-const customDiveTimeField = document.getElementById("customDiveTimeField");
 const typeFilterButtons = Array.from(document.querySelectorAll("[data-point-type-filter]"));
 const logRows = Array.from(document.querySelectorAll(".log-row"));
 const visibleLogCount = document.getElementById("visibleLogCount");
@@ -773,6 +754,8 @@ function applyPointTypeFilter(pointType, updateUrl = true){
         }else{
             url.searchParams.set("point_type", normalizedType);
         }
+        url.searchParams.delete("dive_time_filter");
+        url.searchParams.delete("min_dive_time");
         url.searchParams.set("page", "1");
         window.location.href = url.toString();
     }
@@ -959,29 +942,6 @@ logRows.forEach(row => {
         selectLogRow(row);
     });
 });
-
-function syncDiveTimeFilter(){
-    if(!diveTimeFilterSelect || !minDiveTimeInput || !customDiveTimeField){
-        return;
-    }
-
-    const filterValue = diveTimeFilterSelect.value;
-    const isCustom = filterValue === "custom";
-    customDiveTimeField.style.display = isCustom ? "" : "none";
-
-    if(filterValue === "all"){
-        minDiveTimeInput.value = "";
-    }else if(filterValue === "gt0"){
-        minDiveTimeInput.value = "gt0";
-    }else if(["5", "10", "20"].includes(filterValue)){
-        minDiveTimeInput.value = filterValue;
-    }
-}
-
-if(diveTimeFilterSelect){
-    diveTimeFilterSelect.addEventListener("change", syncDiveTimeFilter);
-    syncDiveTimeFilter();
-}
 
 function confirmSelectedLogs(){
     const selectedCount = logCheckboxes.filter(checkbox => checkbox.checked).length;
