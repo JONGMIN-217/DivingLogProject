@@ -7,6 +7,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from datetime import date, datetime
+from html import escape as html_escape
+from io import StringIO
 import hashlib
 import json
 import zipfile
@@ -3984,6 +3986,250 @@ def log_profile_api(request: Request, log_id: int):
         db.close()
 
 
+def log_filter_params(request: Request, db, current_user):
+    account_settings = get_or_create_user_settings(db, current_user) if current_user else None
+    default_point_type = account_settings.default_log_filter if account_settings else "ALL"
+    default_per_page = str(account_settings.default_log_per_page if account_settings else 25)
+    filters = {
+        "dive_date": request.query_params.get("dive_date", "").strip(),
+        "country_id": request.query_params.get("country_id", "").strip(),
+        "region_id": request.query_params.get("region_id", "").strip(),
+        "area_id": request.query_params.get("area_id", "").strip(),
+        "point_id": request.query_params.get("point_id", "").strip(),
+        "point_type": (request.query_params.get("point_type") or request.query_params.get("type") or default_point_type).strip().upper(),
+        "buddy": request.query_params.get("buddy", "").strip(),
+        "sort": request.query_params.get("sort", "date").strip(),
+        "direction": request.query_params.get("direction", "desc").strip(),
+        "page": request.query_params.get("page", "1").strip(),
+        "per_page": request.query_params.get("per_page", default_per_page).strip(),
+    }
+    if filters["point_type"] not in ("ALL", "OCEAN", "POOL", "GHOST"):
+        filters["point_type"] = "ALL"
+    return filters
+
+
+def build_logs_query(db, current_user, filters):
+    query = (
+        db.query(DiveLog)
+        .options(
+            joinedload(DiveLog.dive_point)
+            .joinedload(DivePoint.area)
+            .joinedload(Area.region)
+            .joinedload(Region.country)
+        )
+        .outerjoin(DivePoint, DiveLog.dive_point_id == DivePoint.id)
+        .outerjoin(Area, DivePoint.area_id == Area.id)
+        .outerjoin(Region, Area.region_id == Region.id)
+        .outerjoin(Country, Region.country_id == Country.id)
+    )
+    query = apply_visible_logs(query, current_user)
+
+    dive_date_filter = parse_date_filter(filters["dive_date"])
+    country_id_filter = parse_int_filter(filters["country_id"])
+    region_id_filter = parse_int_filter(filters["region_id"])
+    area_id_filter = parse_int_filter(filters["area_id"])
+    point_id_filter = parse_int_filter(filters["point_id"])
+
+    if dive_date_filter:
+        query = query.filter(DiveLog.dive_date == dive_date_filter)
+    if country_id_filter:
+        query = query.filter(Country.id == country_id_filter)
+    if region_id_filter:
+        query = query.filter(Region.id == region_id_filter)
+    if area_id_filter:
+        query = query.filter(Area.id == area_id_filter)
+    if point_id_filter:
+        query = query.filter(DivePoint.id == point_id_filter)
+
+    if filters["point_type"] in ("OCEAN", "POOL"):
+        query = query.filter(DivePoint.point_type == filters["point_type"])
+    elif filters["point_type"] == "GHOST":
+        query = query.filter(ghost_log_condition(ghost_log_threshold_for_user(db, current_user)))
+
+    if filters["buddy"]:
+        query = query.filter(DiveLog.buddy.ilike(f"%{filters['buddy']}%"))
+
+    return query
+
+
+def logs_order_expressions(filters):
+    sort_columns = {
+        "date": DiveLog.dive_date,
+        "country": Country.name,
+        "region": Region.name,
+        "area": Area.name,
+        "point": DivePoint.name,
+        "buddy": DiveLog.buddy,
+        "dive_time": DiveLog.dive_time,
+        "number": DiveLog.dive_number,
+        "id": DiveLog.dive_number,
+    }
+    sort_column = sort_columns.get(filters["sort"], DiveLog.dive_date)
+    if filters["sort"] not in sort_columns:
+        filters["sort"] = "date"
+        sort_column = DiveLog.dive_date
+    direction = filters["direction"] if filters["direction"] in ("asc", "desc") else "desc"
+    filters["direction"] = direction
+    if filters["sort"] == "date":
+        return [
+            DiveLog.dive_date.asc() if direction == "asc" else DiveLog.dive_date.desc(),
+            DiveLog.entry_time.asc() if direction == "asc" else DiveLog.entry_time.desc(),
+            DiveLog.dive_time.asc() if direction == "asc" else DiveLog.dive_time.desc(),
+            DiveLog.exit_time.asc() if direction == "asc" else DiveLog.exit_time.desc(),
+            DiveLog.id.asc() if direction == "asc" else DiveLog.id.desc(),
+        ]
+    if filters["sort"] == "dive_time":
+        return [
+            DiveLog.dive_time.asc() if direction == "asc" else DiveLog.dive_time.desc(),
+            DiveLog.dive_date.desc(),
+            DiveLog.entry_time.desc(),
+            DiveLog.exit_time.desc(),
+            DiveLog.id.desc(),
+        ]
+    order_expression = sort_column.asc() if direction == "asc" else sort_column.desc()
+    return [order_expression, DiveLog.dive_date.asc(), DiveLog.entry_time.asc(), DiveLog.id.asc()]
+
+
+EXPORT_COLUMNS = [
+    "Dive Number",
+    "날짜",
+    "입수시각",
+    "출수시각",
+    "다이브타임",
+    "최대수심",
+    "평균수심",
+    "수온",
+    "포인트",
+    "버디",
+    "메모",
+]
+
+
+def _time_display(value):
+    return value.strftime("%H:%M") if value else ""
+
+
+def _number_display(value, digits: int = 1):
+    if value is None:
+        return ""
+    return f"{value:.{digits}f}"
+
+
+def export_log_row(log: DiveLog):
+    point_name = ""
+    if log.dive_point:
+        point_name = log.dive_point.name or ""
+    if not point_name:
+        point_name = log.site_name or "포인트 미확정"
+    return [
+        log.dive_number or "",
+        log.dive_date.isoformat() if log.dive_date else "",
+        _time_display(log.entry_time),
+        _time_display(log.exit_time),
+        log.dive_time if log.dive_time is not None else "",
+        _number_display(log.max_depth),
+        _number_display(log.avg_depth),
+        _number_display(log.water_temp),
+        point_name,
+        log.buddy or "",
+        log.note or "",
+    ]
+
+
+def logs_csv_response(logs, filename):
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(EXPORT_COLUMNS)
+    for log in logs:
+        writer.writerow(export_log_row(log))
+    body = ("\ufeff" + output.getvalue()).encode("utf-8")
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def logs_excel_response(logs, filename):
+    rows = [EXPORT_COLUMNS] + [export_log_row(log) for log in logs]
+    table_rows = []
+    for row in rows:
+        cells = "".join(
+            f"<Cell><Data ss:Type=\"String\">{html_escape(str(value))}</Data></Cell>"
+            for value in row
+        )
+        table_rows.append(f"<Row>{cells}</Row>")
+    body = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Worksheet ss:Name="다이빙 로그">
+  <Table>
+   {''.join(table_rows)}
+  </Table>
+ </Worksheet>
+</Workbook>
+""".encode("utf-8")
+    return Response(
+        content=body,
+        media_type="application/vnd.ms-excel; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/logs/export")
+def export_logs(request: Request, export_format: str = "csv", export_scope: str = "current"):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        filters = log_filter_params(request, db, current_user)
+        if export_scope == "ocean":
+            filters["point_type"] = "OCEAN"
+        elif export_scope == "pool":
+            filters["point_type"] = "POOL"
+        elif export_scope != "current":
+            export_scope = "current"
+
+        query = build_logs_query(db, current_user, filters)
+        logs = query.order_by(*logs_order_expressions(filters)).all()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        scope_label = {"current": "filtered", "ocean": "ocean", "pool": "pool"}[export_scope]
+        if export_format == "excel":
+            return logs_excel_response(logs, f"diving_logs_{scope_label}_{timestamp}.xls")
+        return logs_csv_response(logs, f"diving_logs_{scope_label}_{timestamp}.csv")
+    finally:
+        db.close()
+
+
+@app.get("/logs/export-options")
+def export_log_options(request: Request):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        filters = log_filter_params(request, db, current_user)
+        query = build_logs_query(db, current_user, filters)
+        filtered_count = query.count()
+        ocean_filters = dict(filters)
+        ocean_filters["point_type"] = "OCEAN"
+        pool_filters = dict(filters)
+        pool_filters["point_type"] = "POOL"
+        ocean_count = build_logs_query(db, current_user, ocean_filters).count()
+        pool_count = build_logs_query(db, current_user, pool_filters).count()
+        export_base_query = str(request.url.query)
+        return templates.TemplateResponse(
+            "logs_export_options.html",
+            {
+                "request": request,
+                "filters": filters,
+                "filtered_count": filtered_count,
+                "ocean_count": ocean_count,
+                "pool_count": pool_count,
+                "export_base_query": export_base_query,
+            },
+        )
+    finally:
+        db.close()
+
+
 @app.get("/admin/reextract-profiles")
 def admin_reextract_profiles(request: Request):
     db = SessionLocal()
@@ -4105,24 +4351,7 @@ def all_logs(request: Request):
     db = SessionLocal()
     try:
         current_user = get_current_user(request, db)
-        account_settings = get_or_create_user_settings(db, current_user) if current_user else None
-        default_point_type = account_settings.default_log_filter if account_settings else "ALL"
-        default_per_page = str(account_settings.default_log_per_page if account_settings else 25)
-        filters = {
-            "dive_date": request.query_params.get("dive_date", "").strip(),
-            "country_id": request.query_params.get("country_id", "").strip(),
-            "region_id": request.query_params.get("region_id", "").strip(),
-            "area_id": request.query_params.get("area_id", "").strip(),
-            "point_id": request.query_params.get("point_id", "").strip(),
-            "point_type": (request.query_params.get("point_type") or request.query_params.get("type") or default_point_type).strip().upper(),
-            "buddy": request.query_params.get("buddy", "").strip(),
-            "sort": request.query_params.get("sort", "date").strip(),
-            "direction": request.query_params.get("direction", "desc").strip(),
-            "page": request.query_params.get("page", "1").strip(),
-            "per_page": request.query_params.get("per_page", default_per_page).strip(),
-        }
-        if filters["point_type"] not in ("ALL", "OCEAN", "POOL", "GHOST"):
-            filters["point_type"] = "ALL"
+        filters = log_filter_params(request, db, current_user)
         page = parse_int_filter(filters["page"]) or 1
         per_page = parse_int_filter(filters["per_page"]) or 25
         if per_page not in (25, 50, 100):
@@ -4132,86 +4361,8 @@ def all_logs(request: Request):
         recalculate_after_log_changes(db, current_user)
         db.commit()
 
-        query = (
-            db.query(DiveLog)
-            .options(
-                joinedload(DiveLog.dive_point)
-                .joinedload(DivePoint.area)
-                .joinedload(Area.region)
-                .joinedload(Region.country)
-            )
-            .outerjoin(DivePoint, DiveLog.dive_point_id == DivePoint.id)
-            .outerjoin(Area, DivePoint.area_id == Area.id)
-            .outerjoin(Region, Area.region_id == Region.id)
-            .outerjoin(Country, Region.country_id == Country.id)
-        )
-        query = apply_visible_logs(query, current_user)
-
-        dive_date_filter = parse_date_filter(filters["dive_date"])
-        country_id_filter = parse_int_filter(filters["country_id"])
-        region_id_filter = parse_int_filter(filters["region_id"])
-        area_id_filter = parse_int_filter(filters["area_id"])
-        point_id_filter = parse_int_filter(filters["point_id"])
-
-        if dive_date_filter:
-            query = query.filter(DiveLog.dive_date == dive_date_filter)
-
-        if country_id_filter:
-            query = query.filter(Country.id == country_id_filter)
-
-        if region_id_filter:
-            query = query.filter(Region.id == region_id_filter)
-
-        if area_id_filter:
-            query = query.filter(Area.id == area_id_filter)
-
-        if point_id_filter:
-            query = query.filter(DivePoint.id == point_id_filter)
-
-        if filters["point_type"] in ("OCEAN", "POOL"):
-            query = query.filter(DivePoint.point_type == filters["point_type"])
-        elif filters["point_type"] == "GHOST":
-            query = query.filter(ghost_log_condition(ghost_log_threshold_for_user(db, current_user)))
-
-        if filters["buddy"]:
-            query = query.filter(DiveLog.buddy.ilike(f"%{filters['buddy']}%"))
-
-        sort_columns = {
-            "date": DiveLog.dive_date,
-            "country": Country.name,
-            "region": Region.name,
-            "area": Area.name,
-            "point": DivePoint.name,
-            "buddy": DiveLog.buddy,
-            "dive_time": DiveLog.dive_time,
-            "number": DiveLog.dive_number,
-            "id": DiveLog.dive_number,
-        }
-        sort_column = sort_columns.get(filters["sort"], DiveLog.dive_date)
-        if filters["sort"] not in sort_columns:
-            filters["sort"] = "date"
-            sort_column = DiveLog.dive_date
-        direction = filters["direction"] if filters["direction"] in ("asc", "desc") else "desc"
-        filters["direction"] = direction
-        if filters["sort"] == "date":
-            order_expressions = [
-                DiveLog.dive_date.asc() if direction == "asc" else DiveLog.dive_date.desc(),
-                DiveLog.entry_time.asc() if direction == "asc" else DiveLog.entry_time.desc(),
-                DiveLog.dive_time.asc() if direction == "asc" else DiveLog.dive_time.desc(),
-                DiveLog.exit_time.asc() if direction == "asc" else DiveLog.exit_time.desc(),
-                DiveLog.id.asc() if direction == "asc" else DiveLog.id.desc(),
-            ]
-        elif filters["sort"] == "dive_time":
-            order_expressions = [
-                DiveLog.dive_time.asc() if direction == "asc" else DiveLog.dive_time.desc(),
-                DiveLog.dive_date.desc(),
-                DiveLog.entry_time.desc(),
-                DiveLog.exit_time.desc(),
-                DiveLog.id.desc(),
-            ]
-        else:
-            order_expression = sort_column.asc() if direction == "asc" else sort_column.desc()
-            order_expressions = [order_expression, DiveLog.dive_date.asc(), DiveLog.entry_time.asc(), DiveLog.id.asc()]
+        query = build_logs_query(db, current_user, filters)
+        order_expressions = logs_order_expressions(filters)
 
         total_count = query.count()
         total_pages = max((total_count + per_page - 1) // per_page, 1)
@@ -4261,6 +4412,13 @@ def all_logs(request: Request):
             message=None,
             error=None,
         )
+        _, _, raw_query = current_logs_url.partition("?")
+        export_query_params = dict(parse_qsl(raw_query, keep_blank_values=True))
+        export_query_params.pop("message", None)
+        export_query_params.pop("error", None)
+        export_options_url = "/logs/export-options"
+        if export_query_params:
+            export_options_url = f"{export_options_url}?{urlencode(export_query_params)}"
 
         countries = db.query(Country).order_by(Country.name.asc()).all()
         return templates.TemplateResponse(
@@ -4271,6 +4429,7 @@ def all_logs(request: Request):
                 "filters": filters,
                 "pagination": pagination,
                 "current_logs_url": current_logs_url,
+                "export_options_url": export_options_url,
                 "countries": countries,
                 "message": request.query_params.get("message"),
                 "error": request.query_params.get("error"),

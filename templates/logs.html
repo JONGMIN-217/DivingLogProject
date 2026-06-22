@@ -441,6 +441,7 @@
         </label>
         <button class="btn btn-danger" type="submit" form="bulkDeleteForm" onclick="return confirmSelectedLogs();">선택삭제</button>
         <button class="btn" type="button" id="clearVisibleSelection">전체 해제</button>
+        <a class="btn btn-primary" href="{{ export_options_url }}">Export</a>
         <a class="btn" href="/logs?point_type=GHOST">유령 로그 보기</a>
         <a class="btn btn-danger" href="/logs/delete-all-confirm">전체 로그 삭제</a>
         {% if request.session.get("is_admin") %}

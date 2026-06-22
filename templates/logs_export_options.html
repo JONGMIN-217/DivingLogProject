@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block head %}
+<style>
+.export-page {
+    max-width: 860px;
+}
+.export-card {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #fff;
+    padding: 18px;
+}
+.export-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+}
+.form-field label {
+    display: block;
+    margin-bottom: 6px;
+    color: #555;
+    font-size: 14px;
+}
+.form-field select {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    font: inherit;
+}
+.summary-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+    margin: 16px 0;
+}
+.summary-item {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px;
+    background: #f8fafc;
+}
+.summary-label {
+    color: #64748b;
+    font-size: 13px;
+}
+.summary-value {
+    margin-top: 4px;
+    font-size: 22px;
+    font-weight: 700;
+}
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+}
+.btn {
+    display: inline-block;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    background: #fff;
+    color: #222;
+    font: inherit;
+    text-decoration: none;
+    cursor: pointer;
+}
+.btn-primary {
+    border-color: #2364d2;
+    background: #2364d2;
+    color: #fff;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="export-page">
+    <h2>로그 Export 설정</h2>
+    <p>현재 전체 로그 화면의 필터 조건을 기준으로 내보낼 범위와 파일 형식을 선택합니다.</p>
+
+    <div class="summary-list">
+        <div class="summary-item">
+            <div class="summary-label">현재 필터 결과</div>
+            <div class="summary-value">{{ filtered_count }}개</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-label">해양 로그</div>
+            <div class="summary-value">{{ ocean_count }}개</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-label">수영장 로그</div>
+            <div class="summary-value">{{ pool_count }}개</div>
+        </div>
+    </div>
+
+    <section class="export-card">
+        <form action="/logs/export" method="get">
+            <input type="hidden" name="dive_date" value="{{ filters.dive_date }}">
+            <input type="hidden" name="country_id" value="{{ filters.country_id }}">
+            <input type="hidden" name="region_id" value="{{ filters.region_id }}">
+            <input type="hidden" name="area_id" value="{{ filters.area_id }}">
+            <input type="hidden" name="point_id" value="{{ filters.point_id }}">
+            <input type="hidden" name="point_type" value="{{ filters.point_type }}">
+            <input type="hidden" name="buddy" value="{{ filters.buddy }}">
+            <input type="hidden" name="sort" value="{{ filters.sort }}">
+            <input type="hidden" name="direction" value="{{ filters.direction }}">
+            <input type="hidden" name="per_page" value="{{ filters.per_page }}">
+
+            <div class="export-grid">
+                <div class="form-field">
+                    <label for="export_scope">Export 범위</label>
+                    <select id="export_scope" name="export_scope">
+                        <option value="current">현재 필터 결과</option>
+                        <option value="ocean">해양 로그만</option>
+                        <option value="pool">수영장 로그만</option>
+                    </select>
+                </div>
+                <div class="form-field">
+                    <label for="export_format">파일 형식</label>
+                    <select id="export_format" name="export_format">
+                        <option value="csv">CSV</option>
+                        <option value="excel">Excel</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="actions">
+                <button class="btn btn-primary" type="submit">Export 다운로드</button>
+                <a class="btn" href="/logs{% if export_base_query %}?{{ export_base_query }}{% endif %}">전체 로그로 돌아가기</a>
+            </div>
+        </form>
+    </section>
+</div>
+{% endblock %}
