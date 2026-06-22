@@ -1300,6 +1300,16 @@ def import_batch_duplicate_summary(db, batch: dict, user_id: int | None):
     return build_import_batch_duplicate_summary(db, batch, user_id)
 
 
+def delete_complete_url(deleted_count: int, remaining_count: int, delete_type: str):
+    return "/logs/delete-complete?" + urlencode(
+        {
+            "deleted_count": deleted_count,
+            "remaining_count": remaining_count,
+            "delete_type": delete_type,
+        }
+    )
+
+
 def build_import_batch_preview(batch: dict, page: int):
     total_count = len(batch.get("dives", []))
     total_pages = max((total_count + IMPORT_PREVIEW_PAGE_SIZE - 1) // IMPORT_PREVIEW_PAGE_SIZE, 1)
@@ -3359,8 +3369,6 @@ def delete_selected_logs(
             .filter(DiveLog.id.in_(log_ids))
             .all()
         )
-        allowed_ids = {log.id for log in logs}
-        denied_ids = [log_id for log_id in log_ids if log_id not in allowed_ids]
         affected_user_ids = {log.user_id for log in logs}
 
         for log in logs:
@@ -3369,12 +3377,11 @@ def delete_selected_logs(
         recalculate_after_log_changes(db, current_user, affected_user_ids)
         db.commit()
 
-        message = f"선택삭제 완료: 삭제된 로그 {len(logs)}개"
-        if denied_ids:
-            message += f", 권한 없음 또는 찾을 수 없는 로그 {len(denied_ids)}개"
         remaining_count = editable_log_query(db, current_user).count()
-        message += f", 남은 로그 {remaining_count}개"
-        return RedirectResponse(url=logs_redirect_url(return_url, message=message), status_code=303)
+        return RedirectResponse(
+            url=delete_complete_url(len(logs), remaining_count, "선택 삭제"),
+            status_code=303,
+        )
     finally:
         db.close()
 
@@ -3403,8 +3410,6 @@ def delete_selected_ghost_logs(
             .filter(ghost_log_condition())
             .all()
         )
-        allowed_ids = {log.id for log in logs}
-        denied_count = len([log_id for log_id in log_ids if log_id not in allowed_ids])
         affected_user_ids = {log.user_id for log in logs}
 
         for log in logs:
@@ -3418,11 +3423,8 @@ def delete_selected_ghost_logs(
             .filter(ghost_log_condition())
             .count()
         )
-        message = f"유령 로그 삭제 완료: 삭제된 로그 {len(logs)}개, 남은 유령 로그 {remaining_ghost_count}개"
-        if denied_count:
-            message += f", 삭제 제외 {denied_count}개"
         return RedirectResponse(
-            url=logs_redirect_url(return_url, point_type="GHOST", message=message),
+            url=delete_complete_url(len(logs), remaining_ghost_count, "유령 로그 삭제"),
             status_code=303,
         )
     finally:
@@ -3467,10 +3469,31 @@ def delete_all_logs(request: Request):
         recalculate_after_log_changes(db, current_user, affected_user_ids)
         db.commit()
 
-        message = f"전체 삭제 완료: 삭제된 로그 {delete_count}개, 남은 로그 0개"
-        return RedirectResponse(url=f"/logs?{urlencode({'message': message})}", status_code=303)
+        remaining_count = editable_log_query(db, current_user).count()
+        return RedirectResponse(
+            url=delete_complete_url(delete_count, remaining_count, "전체 삭제"),
+            status_code=303,
+        )
     finally:
         db.close()
+
+
+@app.get("/logs/delete-complete")
+def delete_complete_page(
+    request: Request,
+    deleted_count: int = 0,
+    remaining_count: int = 0,
+    delete_type: str = "로그 삭제",
+):
+    return templates.TemplateResponse(
+        "logs_delete_complete.html",
+        {
+            "request": request,
+            "deleted_count": max(deleted_count, 0),
+            "remaining_count": max(remaining_count, 0),
+            "delete_type": delete_type,
+        },
+    )
 
 
 @app.get("/admin/recalculate-dive-numbers")

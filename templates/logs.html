@@ -994,12 +994,12 @@ function confirmSelectedLogs(){
         if(bulkDeleteForm){
             bulkDeleteForm.action = "/logs/delete-ghost-selected";
         }
-        return confirm(`선택한 ${selectedCount}개의 유령 로그를 삭제하시겠습니까?`);
+        return confirm(`선택한 로그 ${selectedCount}개를 삭제하면 복구할 수 없습니다. 계속하시겠습니까?`);
     }
     if(bulkDeleteForm){
         bulkDeleteForm.action = "/logs/delete-selected";
     }
-    return confirm(`선택한 로그 ${selectedCount}개를 삭제하시겠습니까?`);
+    return confirm(`선택한 로그 ${selectedCount}개를 삭제하면 복구할 수 없습니다. 계속하시겠습니까?`);
 }
 </script>
 
