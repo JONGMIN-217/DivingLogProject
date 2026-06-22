@@ -155,7 +155,8 @@
     font-size: 13px;
 }
 
-.marine-value {
+.marine-value,
+.weather-value {
     margin-top: 4px;
     font-weight: 700;
 }
@@ -380,6 +381,15 @@
         <p class="empty-value" data-marine-status>해양 정보를 불러오는 중입니다.</p>
         <div class="marine-grid" data-marine-content hidden></div>
     </section>
+
+    <section class="detail-card marine-card"
+             data-weather-point-id="{{ dive_point.id }}"
+             data-weather-date="{{ log.dive_date }}"
+             data-weather-time="{{ log.entry_time.strftime('%H:%M') if log.entry_time else '' }}">
+        <h3>기상 정보</h3>
+        <p class="empty-value" data-weather-status>기상 정보를 불러오는 중입니다.</p>
+        <div class="marine-grid" data-weather-content hidden></div>
+    </section>
     {% endif %}
 
     <section class="detail-card note-card">
@@ -514,6 +524,53 @@
         })
         .catch(() => {
             status.textContent = "해양 정보 조회 실패";
+        });
+})();
+</script>
+
+<script>
+(function () {
+    const card = document.querySelector("[data-weather-point-id]");
+    if (!card) return;
+
+    const status = card.querySelector("[data-weather-status]");
+    const content = card.querySelector("[data-weather-content]");
+
+    function valueText(value, unit) {
+        return value === null || value === undefined ? "-" : `${value}${unit}`;
+    }
+
+    function render(weather) {
+        content.innerHTML = `
+            <div class="marine-item"><div class="marine-label">기온</div><div class="weather-value">${valueText(weather.temperature, " ℃")}</div></div>
+            <div class="marine-item"><div class="marine-label">체감온도</div><div class="weather-value">${valueText(weather.apparent_temperature, " ℃")}</div></div>
+            <div class="marine-item"><div class="marine-label">풍속</div><div class="weather-value">${valueText(weather.wind_speed, " m/s")}</div></div>
+            <div class="marine-item"><div class="marine-label">풍향</div><div class="weather-value">${valueText(weather.wind_direction, "°")}</div></div>
+            <div class="marine-item"><div class="marine-label">강수량</div><div class="weather-value">${valueText(weather.precipitation, " mm")}</div></div>
+        `;
+        status.textContent = `출처: ${weather.source || "Open-Meteo Weather"}`;
+        content.hidden = false;
+    }
+
+    const params = new URLSearchParams();
+    if (card.dataset.weatherDate) {
+        params.set("weather_date", card.dataset.weatherDate);
+    }
+    if (card.dataset.weatherTime) {
+        params.set("target_time", card.dataset.weatherTime);
+    }
+
+    fetch(`/api/points/${card.dataset.weatherPointId}/weather?${params.toString()}`)
+        .then((response) => response.ok ? response.json() : { ok: false })
+        .then((payload) => {
+            if (!payload.ok) {
+                status.textContent = payload.message || "기상 정보 조회 실패";
+                return;
+            }
+            render(payload.weather);
+        })
+        .catch(() => {
+            status.textContent = "기상 정보 조회 실패";
         });
 })();
 </script>

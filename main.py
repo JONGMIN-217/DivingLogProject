@@ -6,7 +6,7 @@ from sqlalchemy.orm import joinedload
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from html import escape as html_escape
 from io import StringIO
 import hashlib
@@ -53,6 +53,7 @@ from app.services.import_duplicate_service import (
 )
 from app.services.time_format_service import format_dive_duration
 from app.services.open_meteo_marine import get_current_marine_conditions
+from app.services.open_meteo_weather import get_current_weather, get_historical_weather
 from app.services.backup_service import (
     apply_restore,
     backup_json_bytes,
@@ -3143,6 +3144,35 @@ def point_current_marine_api(request: Request, point_id: int):
             return {"ok": True, "marine": get_current_marine_conditions(point.latitude, point.longitude)}
         except Exception:
             return {"ok": False, "message": "해양 정보 조회 실패"}
+    finally:
+        db.close()
+
+
+@app.get("/api/points/{point_id}/weather")
+def point_weather_api(
+    request: Request,
+    point_id: int,
+    weather_date: str | None = None,
+    target_time: str | None = None,
+):
+    db = SessionLocal()
+    try:
+        point = db.query(DivePoint).filter(DivePoint.id == point_id).first()
+        if not point:
+            return {"ok": False, "message": "포인트를 찾을 수 없습니다."}
+        if not valid_coordinate(point.latitude, point.longitude):
+            return {"ok": False, "message": "포인트 GPS 정보가 없습니다."}
+
+        try:
+            if weather_date:
+                parsed_date = date.fromisoformat(weather_date)
+                parsed_time = time.fromisoformat(target_time) if target_time else None
+                weather = get_historical_weather(point.latitude, point.longitude, parsed_date, parsed_time)
+            else:
+                weather = get_current_weather(point.latitude, point.longitude)
+            return {"ok": True, "weather": weather}
+        except Exception:
+            return {"ok": False, "message": "기상 정보 조회 실패"}
     finally:
         db.close()
 
