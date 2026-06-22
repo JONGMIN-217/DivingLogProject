@@ -132,8 +132,32 @@
 
 .note-card,
 .photo-card,
-.profile-card {
+.profile-card,
+.marine-card {
     margin-top: 16px;
+}
+
+.marine-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+}
+
+.marine-item {
+    padding: 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #f8fafc;
+}
+
+.marine-label {
+    color: #64748b;
+    font-size: 13px;
+}
+
+.marine-value {
+    margin-top: 4px;
+    font-weight: 700;
 }
 
 .depth-profile-chart {
@@ -350,6 +374,14 @@
         <p id="depthProfileFallback" class="empty-value">수심 그래프를 불러오는 중입니다.</p>
     </section>
 
+    {% if dive_point %}
+    <section class="detail-card marine-card" data-marine-point-id="{{ dive_point.id }}">
+        <h3>해양 환경 정보</h3>
+        <p class="empty-value" data-marine-status>해양 정보를 불러오는 중입니다.</p>
+        <div class="marine-grid" data-marine-content hidden></div>
+    </section>
+    {% endif %}
+
     <section class="detail-card note-card">
         <h3>메모</h3>
         {% if log.note %}
@@ -444,6 +476,44 @@
                 fallbackNode.textContent = "수심 프로파일을 불러오지 못했습니다.";
                 fallbackNode.style.display = "";
             }
+        });
+})();
+</script>
+
+<script>
+(function () {
+    const card = document.querySelector("[data-marine-point-id]");
+    if (!card) return;
+
+    const status = card.querySelector("[data-marine-status]");
+    const content = card.querySelector("[data-marine-content]");
+
+    function valueText(value, unit) {
+        return value === null || value === undefined ? "-" : `${value}${unit}`;
+    }
+
+    function render(marine) {
+        content.innerHTML = `
+            <div class="marine-item"><div class="marine-label">파고</div><div class="marine-value">${valueText(marine.wave_height, " m")}</div></div>
+            <div class="marine-item"><div class="marine-label">파주기</div><div class="marine-value">${valueText(marine.wave_period, " 초")}</div></div>
+            <div class="marine-item"><div class="marine-label">파향</div><div class="marine-value">${valueText(marine.wave_direction, "°")}</div></div>
+            <div class="marine-item"><div class="marine-label">해수면 수온</div><div class="marine-value">${valueText(marine.sea_surface_temperature, " ℃")}</div></div>
+        `;
+        status.textContent = `출처: ${marine.source || "Open-Meteo Marine"}`;
+        content.hidden = false;
+    }
+
+    fetch(`/api/points/${card.dataset.marinePointId}/marine`)
+        .then((response) => response.ok ? response.json() : { ok: false })
+        .then((payload) => {
+            if (!payload.ok) {
+                status.textContent = payload.message || "해양 정보 조회 실패";
+                return;
+            }
+            render(payload.marine);
+        })
+        .catch(() => {
+            status.textContent = "해양 정보 조회 실패";
         });
 })();
 </script>

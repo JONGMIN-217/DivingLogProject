@@ -29,6 +29,17 @@
     color: #333;
 }
 
+.point-popup__marine{
+    display: grid;
+    gap: 4px;
+    margin: 10px 0;
+    padding: 8px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #f8fafc;
+    font-size: 13px;
+}
+
 .point-popup__button{
     width: 100%;
     padding: 7px 10px;
@@ -89,6 +100,11 @@ function createPointPopup(point){
     const latestDiveDate = document.createElement("div");
     latestDiveDate.textContent = `최근 다이빙 날짜: ${formatDiveDate(point.latest_dive_date)}`;
 
+    const marine = document.createElement("div");
+    marine.className = "point-popup__marine";
+    marine.dataset.marinePointId = point.id;
+    marine.textContent = "해양 정보를 불러오는 중입니다.";
+
     const button = document.createElement("button");
     button.type = "button";
     button.className = "point-popup__button";
@@ -98,9 +114,40 @@ function createPointPopup(point){
     });
 
     meta.append(logCount, latestDiveDate);
-    container.append(title, meta, button);
+    container.append(title, meta, marine, button);
 
     return container;
+}
+
+function formatMarineValue(value, unit){
+    return value === null || value === undefined ? "-" : `${value}${unit}`;
+}
+
+function loadPopupMarineInfo(pointId, popupNode){
+    const marineNode = popupNode.querySelector("[data-marine-point-id]");
+    if(!marineNode || marineNode.dataset.loaded === "1"){
+        return;
+    }
+    marineNode.dataset.loaded = "1";
+
+    fetch(`/api/points/${pointId}/marine`)
+        .then(response => response.ok ? response.json() : { ok: false })
+        .then(payload => {
+            if(!payload.ok){
+                marineNode.textContent = payload.message || "해양 정보 조회 실패";
+                return;
+            }
+            const marine = payload.marine || {};
+            marineNode.innerHTML = `
+                <div>파고: ${formatMarineValue(marine.wave_height, " m")}</div>
+                <div>파주기: ${formatMarineValue(marine.wave_period, " 초")}</div>
+                <div>파향: ${formatMarineValue(marine.wave_direction, "°")}</div>
+                <div>해수면 수온: ${formatMarineValue(marine.sea_surface_temperature, " ℃")}</div>
+            `;
+        })
+        .catch(() => {
+            marineNode.textContent = "해양 정보 조회 실패";
+        });
 }
 
 async function loadPoints(){
@@ -114,6 +161,9 @@ async function loadPoints(){
 
             const marker = L.marker([p.latitude, p.longitude]).addTo(map);
             marker.bindPopup(createPointPopup(p));
+            marker.on("popupopen", event => {
+                loadPopupMarineInfo(p.id, event.popup.getElement());
+            });
 
         }
 

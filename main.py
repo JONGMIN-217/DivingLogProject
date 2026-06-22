@@ -52,6 +52,7 @@ from app.services.import_duplicate_service import (
     import_batch_duplicate_summary as build_import_batch_duplicate_summary,
 )
 from app.services.time_format_service import format_dive_duration
+from app.services.open_meteo_marine import get_current_marine_conditions
 from app.services.backup_service import (
     apply_restore,
     backup_json_bytes,
@@ -3126,6 +3127,24 @@ def map_page(request: Request):
     return templates.TemplateResponse(
         "index.html", {"request": request}
     )
+
+
+@app.get("/api/points/{point_id}/marine")
+def point_current_marine_api(request: Request, point_id: int):
+    db = SessionLocal()
+    try:
+        point = db.query(DivePoint).filter(DivePoint.id == point_id).first()
+        if not point:
+            return {"ok": False, "message": "포인트를 찾을 수 없습니다."}
+        if not valid_coordinate(point.latitude, point.longitude):
+            return {"ok": False, "message": "포인트 GPS 정보가 없습니다."}
+
+        try:
+            return {"ok": True, "marine": get_current_marine_conditions(point.latitude, point.longitude)}
+        except Exception:
+            return {"ok": False, "message": "해양 정보 조회 실패"}
+    finally:
+        db.close()
 
 @app.get("/import")
 def import_page(request: Request):
