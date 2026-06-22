@@ -42,7 +42,7 @@
                 <a class="nav-link" href="/map">지도 보기</a>
                 {% if request.session.get("is_admin") %}
                 <a class="nav-link admin-link" href="/admin/divepoints">포인트 관리 <span class="admin-badge">관리자</span></a>
-                <a class="nav-link admin-link" href="/admin/points/merge">포인트 병합 <span class="admin-badge">관리자</span></a>
+                <a class="nav-link admin-link" href="/admin/points/quality">포인트 품질 관리 <span class="admin-badge">관리자</span></a>
                 <a class="nav-link admin-link" href="/admin/points/candidates">포인트 후보 검토 <span class="admin-badge">관리자</span></a>
                 <a class="nav-link admin-link" href="/admin/points/from-logs">로그 기반 포인트 등록 <span class="admin-badge">관리자</span></a>
                 {% endif %}
@@ -122,7 +122,7 @@
             {% if request.session.get("is_admin") %}
             <a class="admin-link" href="/admin">관리자 대시보드 <span class="admin-badge">관리자</span></a>
             <a class="admin-link" href="/admin/divepoints">포인트 관리 <span class="admin-badge">관리자</span></a>
-            <a class="admin-link" href="/admin/points/merge">포인트 병합 <span class="admin-badge">관리자</span></a>
+            <a class="admin-link" href="/admin/points/quality">포인트 품질 관리 <span class="admin-badge">관리자</span></a>
             <a class="admin-link" href="/admin/points/candidates">포인트 후보 검토 <span class="admin-badge">관리자</span></a>
             <a class="admin-link" href="/admin/points/from-logs">로그 기반 포인트 등록 <span class="admin-badge">관리자</span></a>
             <a class="admin-link" href="/admin/users">사용자 관리 <span class="admin-badge">관리자</span></a>

@@ -1116,8 +1116,23 @@ def point_log_counts(db):
     }
 
 
-def close_point_merge_candidates(points: list[DivePoint], log_counts: dict[int, int]):
+def average_point_coordinates(points: list[DivePoint]):
+    coordinates = [
+        (point.latitude, point.longitude)
+        for point in points
+        if valid_coordinate(point.latitude, point.longitude)
+    ]
+    if not coordinates:
+        return None, None
+    return (
+        sum(latitude for latitude, _longitude in coordinates) / len(coordinates),
+        sum(longitude for _latitude, longitude in coordinates) / len(coordinates),
+    )
+
+
+def close_point_merge_candidates(points: list[DivePoint], log_counts: dict[int, int], threshold_meters: int = 100):
     candidates = []
+    threshold_km = threshold_meters / 1000
     for index, point in enumerate(points):
         if not valid_coordinate(point.latitude, point.longitude):
             continue
@@ -1125,20 +1140,32 @@ def close_point_merge_candidates(points: list[DivePoint], log_counts: dict[int, 
             if not valid_coordinate(other.latitude, other.longitude):
                 continue
             distance = distance_km(point.latitude, point.longitude, other.latitude, other.longitude)
-            if distance > 0.1:
+            if distance > threshold_km:
                 continue
             representative = point
             if log_counts.get(other.id, 0) > log_counts.get(point.id, 0):
                 representative = other
+            avg_latitude, avg_longitude = average_point_coordinates([point, other])
             candidates.append(
                 {
                     "points": [point, other],
                     "representative": representative,
                     "distance_m": int(round(distance * 1000)),
                     "log_count": log_counts.get(point.id, 0) + log_counts.get(other.id, 0),
+                    "avg_latitude": avg_latitude,
+                    "avg_longitude": avg_longitude,
                 }
             )
     return sorted(candidates, key=lambda item: (item["distance_m"], -item["log_count"]))
+
+
+def points_without_gps(points: list[DivePoint], log_counts: dict[int, int]):
+    return [
+        point for point in points
+        if not valid_coordinate(point.latitude, point.longitude)
+        or point.latitude in (0, 0.0)
+        or point.longitude in (0, 0.0)
+    ]
 
 
 def point_display_path(point: DivePoint):
@@ -2806,6 +2833,11 @@ def admin_divepoints(request: Request):
 
 @app.get("/admin/points/merge")
 def admin_point_merge(request: Request):
+    return admin_point_quality(request)
+
+
+@app.get("/admin/points/quality")
+def admin_point_quality(request: Request, distance_m: int = 100):
     db = SessionLocal()
     try:
         current_user, redirect = admin_required_redirect(request, db)
@@ -2823,7 +2855,10 @@ def admin_point_merge(request: Request):
             .all()
         )
         log_counts = point_log_counts(db)
-        candidates = close_point_merge_candidates(points, log_counts)
+        if distance_m not in (50, 100, 200):
+            distance_m = 100
+        candidates = close_point_merge_candidates(points, log_counts, distance_m)
+        no_gps_points = points_without_gps(points, log_counts)
 
         return templates.TemplateResponse(
             "admin_point_merge.html",
@@ -2832,6 +2867,9 @@ def admin_point_merge(request: Request):
                 "points": points,
                 "log_counts": log_counts,
                 "candidates": candidates,
+                "no_gps_points": no_gps_points,
+                "distance_m": distance_m,
+                "distance_options": [50, 100, 200],
                 "error": request.query_params.get("error"),
                 "message": request.query_params.get("message"),
             },
@@ -2845,6 +2883,7 @@ def preview_point_merge(
     request: Request,
     point_ids: list[int] = Form(...),
     representative_point_id: int = Form(...),
+    use_average_gps: str | None = Form(None),
 ):
     db = SessionLocal()
     try:
@@ -2885,6 +2924,7 @@ def preview_point_merge(
             .scalar()
             or 0
         )
+        average_latitude, average_longitude = average_point_coordinates(points)
 
         return templates.TemplateResponse(
             "admin_point_merge_preview.html",
@@ -2895,6 +2935,9 @@ def preview_point_merge(
                 "selected_ids": selected_ids,
                 "affected_log_count": affected_log_count,
                 "merge_log_count": merge_log_count,
+                "average_latitude": average_latitude,
+                "average_longitude": average_longitude,
+                "use_average_gps": bool(use_average_gps),
             },
         )
     finally:
@@ -2906,6 +2949,7 @@ def confirm_point_merge(
     request: Request,
     point_ids: list[int] = Form(...),
     representative_point_id: int = Form(...),
+    use_average_gps: str | None = Form(None),
 ):
     db = SessionLocal()
     try:
@@ -2923,6 +2967,13 @@ def confirm_point_merge(
         if not representative or len(merge_points) != len(merge_ids):
             return RedirectResponse(url="/admin/points/merge?error=선택한 포인트를 찾을 수 없습니다.", status_code=303)
 
+        average_latitude, average_longitude = average_point_coordinates([representative, *merge_points])
+        gps_updated = False
+        if use_average_gps and valid_coordinate(average_latitude, average_longitude):
+            representative.latitude = average_latitude
+            representative.longitude = average_longitude
+            gps_updated = True
+
         moved_count = (
             db.query(func.count(DiveLog.id))
             .filter(DiveLog.dive_point_id.in_(merge_ids))
@@ -2937,7 +2988,8 @@ def confirm_point_merge(
             db.delete(point)
         db.commit()
 
-        message = f"포인트 병합 완료: 대표 포인트 '{representative.name}', 이동된 로그 {moved_count}개, 삭제된 중복 포인트 {len(merge_points)}개"
+        gps_text = ", GPS 평균 반영" if gps_updated else ""
+        message = f"포인트 병합 완료: 대표 포인트 '{representative.name}', 이동된 로그 {moved_count}개, 삭제된 중복 포인트 {len(merge_points)}개{gps_text}"
         return RedirectResponse(url=admin_divepoints_url(message=message), status_code=303)
     finally:
         db.close()
