@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-heading album-detail-heading">
+    <div>
+        <a class="back-link" href="/albums">공유 사진첩</a>
+        <h1>{{ album.name }}</h1>
+        <p>{{ context_label }} · 참여자 {{ context_members|length }}명</p>
+    </div>
+    <a class="album-action-link" href="/albums/{{ album.id }}/download">전체 다운로드</a>
+</div>
+
+{% if error %}<div class="flash-error">{{ error }}</div>{% endif %}
+{% if message %}<div class="flash-message">{{ message }}</div>{% endif %}
+
+<section class="album-upload-panel">
+    <h2>사진 업로드</h2>
+    <form action="/albums/{{ album.id }}/photos" method="post" enctype="multipart/form-data">
+        <div class="album-upload-fields">
+            <div>
+                <label for="photos">사진 선택</label>
+                <input id="photos" name="photos" type="file" accept="image/*" multiple required>
+            </div>
+            <div>
+                <label for="caption">설명</label>
+                <input id="caption" name="caption" type="text" placeholder="선택 사항">
+            </div>
+            <button type="submit">사진 올리기</button>
+        </div>
+    </form>
+</section>
+
+<section class="album-section">
+    <div class="section-heading">
+        <h2>공유 사진</h2>
+        <span>{{ album.photos|length }}개</span>
+    </div>
+    {% if album.photos %}
+    <div class="photo-grid">
+        {% for photo in album.photos %}
+        <article class="photo-card">
+            <div class="photo-frame">
+                <img src="/{{ photo.image_path }}" alt="{{ photo.caption or '공유 사진' }}" loading="lazy">
+                <div class="photo-badges">
+                    {% if photo.is_cover %}<span>앨범 커버</span>{% endif %}
+                    {% if photo.is_representative %}<span>대표 사진</span>{% endif %}
+                </div>
+            </div>
+            <div class="photo-card-body">
+                <p>{{ photo.caption or '설명 없음' }}</p>
+                <small>{{ photo.uploader.nickname or photo.uploader.username }} 업로드</small>
+                <div class="photo-actions">
+                    <form action="/albums/{{ album.id }}/photos/{{ photo.id }}/representative" method="post">
+                        <button type="submit" class="text-button">대표 지정</button>
+                    </form>
+                    <form action="/albums/{{ album.id }}/photos/{{ photo.id }}/cover" method="post">
+                        <button type="submit" class="text-button">커버 지정</button>
+                    </form>
+                    <a href="/albums/{{ album.id }}/photos/{{ photo.id }}/download">다운로드</a>
+                    {% if current_user.id == photo.uploader_id or current_user.id == album.owner_id %}
+                    <form action="/albums/{{ album.id }}/photos/{{ photo.id }}/delete" method="post"
+                          onsubmit="return confirm('이 사진을 삭제하면 복구할 수 없습니다. 계속하시겠습니까?');">
+                        <button type="submit" class="text-button danger">삭제</button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">아직 공유된 사진이 없습니다.</div>
+    {% endif %}
+</section>
+
+<section class="album-members">
+    <strong>참여자</strong>
+    <span>
+        {% for member in context_members %}
+        {{ member.user.nickname or member.user.username }}{% if not loop.last %}, {% endif %}
+        {% endfor %}
+    </span>
+</section>
+{% endblock %}

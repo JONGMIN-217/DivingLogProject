@@ -15,7 +15,11 @@ from app.models import (
     DiveProfileSample,
     DiveTrip,
     Friend,
+    FriendGroup,
+    FriendGroupMember,
     Region,
+    SharedAlbum,
+    SharedAlbumPhoto,
     TripParticipant,
     TripPhoto,
     User,
@@ -24,11 +28,16 @@ from app.models import (
 
 
 BACKUP_VERSION = 1
+MAX_ZIP_MEMBERS = 20_000
+MAX_ZIP_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024
+MAX_ZIP_COMPRESSION_RATIO = 200
 
 MODEL_TABLES = {
     "users": User,
     "user_settings": UserSettings,
     "friends": Friend,
+    "friend_groups": FriendGroup,
+    "friend_group_members": FriendGroupMember,
     "countries": Country,
     "regions": Region,
     "areas": Area,
@@ -38,12 +47,16 @@ MODEL_TABLES = {
     "dive_trips": DiveTrip,
     "trip_participants": TripParticipant,
     "trip_photos": TripPhoto,
+    "shared_albums": SharedAlbum,
+    "shared_album_photos": SharedAlbumPhoto,
 }
 
 RESTORE_ORDER = [
     "users",
     "user_settings",
     "friends",
+    "friend_groups",
+    "friend_group_members",
     "countries",
     "regions",
     "areas",
@@ -53,12 +66,17 @@ RESTORE_ORDER = [
     "dive_trips",
     "trip_participants",
     "trip_photos",
+    "shared_albums",
+    "shared_album_photos",
 ]
 
 DATE_COLUMNS = {
     "users": {"created_at": "datetime"},
     "dive_logs": {"dive_date": "date", "entry_time": "time", "exit_time": "time"},
     "dive_trips": {"start_date": "date", "end_date": "date"},
+    "friend_groups": {"created_at": "datetime"},
+    "shared_albums": {"created_at": "datetime"},
+    "shared_album_photos": {"created_at": "datetime"},
 }
 
 
@@ -108,6 +126,12 @@ def _query_for_scope(db, model, table_name: str, user, include_all: bool):
         return query.filter(UserSettings.user_id == user.id)
     if table_name == "friends":
         return query.filter((Friend.requester_id == user.id) | (Friend.addressee_id == user.id))
+    if table_name == "friend_groups":
+        return query.filter(FriendGroup.owner_id == user.id)
+    if table_name == "friend_group_members":
+        return query.join(FriendGroup, FriendGroup.id == FriendGroupMember.group_id).filter(
+            FriendGroup.owner_id == user.id
+        )
     if table_name == "dive_logs":
         return query.filter(DiveLog.user_id == user.id)
     if table_name == "dive_profile_samples":
@@ -118,6 +142,12 @@ def _query_for_scope(db, model, table_name: str, user, include_all: bool):
         return query.join(DiveTrip, DiveTrip.id == TripParticipant.trip_id).filter(DiveTrip.owner_id == user.id)
     if table_name == "trip_photos":
         return query.join(DiveTrip, DiveTrip.id == TripPhoto.trip_id).filter(DiveTrip.owner_id == user.id)
+    if table_name == "shared_albums":
+        return query.filter(SharedAlbum.owner_id == user.id)
+    if table_name == "shared_album_photos":
+        return query.join(SharedAlbum, SharedAlbum.id == SharedAlbumPhoto.album_id).filter(
+            SharedAlbum.owner_id == user.id
+        )
     if table_name == "dive_points":
         point_ids = [
             row[0]
@@ -221,7 +251,7 @@ def backup_json_bytes(payload):
 def _safe_upload_path(upload_dir: Path, relative_path: str | None):
     if not relative_path:
         return None
-    candidate = (upload_dir / relative_path).resolve()
+    candidate = (upload_dir / relative_path.removeprefix("uploads/")).resolve()
     try:
         candidate.relative_to(upload_dir.resolve())
     except ValueError:
@@ -235,6 +265,9 @@ def _photo_paths(payload):
         if log.get("image_path"):
             paths.add(log["image_path"])
     for photo in payload.get("tables", {}).get("trip_photos", []):
+        if photo.get("image_path"):
+            paths.add(photo["image_path"])
+    for photo in payload.get("tables", {}).get("shared_album_photos", []):
         if photo.get("image_path"):
             paths.add(photo["image_path"])
     return sorted(paths)
@@ -257,12 +290,34 @@ def backup_zip_bytes(payload, upload_dir: Path, include_photos: bool):
     return buffer.getvalue()
 
 
+def _validated_zip_members(zip_file: zipfile.ZipFile):
+    members = zip_file.infolist()
+    if len(members) > MAX_ZIP_MEMBERS:
+        raise ValueError("ZIP 파일의 항목 수가 허용 범위를 초과합니다.")
+
+    total_size = 0
+    for member in members:
+        total_size += member.file_size
+        if total_size > MAX_ZIP_UNCOMPRESSED_BYTES:
+            raise ValueError("ZIP 압축 해제 크기가 허용 범위를 초과합니다.")
+        if (
+            member.file_size > 1024 * 1024
+            and member.compress_size > 0
+            and member.file_size / member.compress_size > MAX_ZIP_COMPRESSION_RATIO
+        ):
+            raise ValueError("비정상적인 압축률의 ZIP 항목이 포함되어 있습니다.")
+        if member.filename.startswith(("/", "\\")) or ".." in Path(member.filename).parts:
+            raise ValueError("ZIP 파일에 안전하지 않은 경로가 포함되어 있습니다.")
+    return members
+
+
 def parse_backup_file(path: Path):
     suffix = path.suffix.lower()
     if suffix == ".json":
         return json.loads(path.read_text(encoding="utf-8"))
     if suffix == ".zip":
         with zipfile.ZipFile(path) as zip_file:
+            _validated_zip_members(zip_file)
             with zip_file.open("backup.json") as backup_file:
                 return json.loads(backup_file.read().decode("utf-8"))
     raise ValueError("JSON 또는 ZIP 백업 파일만 복구할 수 있습니다.")
@@ -275,7 +330,7 @@ def restore_photos_from_zip(path: Path, upload_dir: Path, allowed_paths: set[str
     restored_count = 0
     upload_root = upload_dir.resolve()
     with zipfile.ZipFile(path) as zip_file:
-        for member in zip_file.infolist():
+        for member in _validated_zip_members(zip_file):
             if member.is_dir() or not member.filename.startswith("photos/"):
                 continue
             relative_name = member.filename.removeprefix("photos/")
@@ -283,7 +338,7 @@ def restore_photos_from_zip(path: Path, upload_dir: Path, allowed_paths: set[str
                 continue
             if allowed_paths is not None and relative_name not in allowed_paths:
                 continue
-            destination = (upload_root / relative_name).resolve()
+            destination = (upload_root / relative_name.removeprefix("uploads/")).resolve()
             try:
                 destination.relative_to(upload_root)
             except ValueError:
@@ -321,6 +376,8 @@ def filter_payload_for_restore(payload, user, restore_all: bool):
     user_id = user.id
     log_ids = {row.get("id") for row in source_tables.get("dive_logs", []) if row.get("user_id") == user_id}
     trip_ids = {row.get("id") for row in source_tables.get("dive_trips", []) if row.get("owner_id") == user_id}
+    group_ids = {row.get("id") for row in source_tables.get("friend_groups", []) if row.get("owner_id") == user_id}
+    album_ids = {row.get("id") for row in source_tables.get("shared_albums", []) if row.get("owner_id") == user_id}
     point_ids = {row.get("dive_point_id") for row in source_tables.get("dive_logs", []) if row.get("user_id") == user_id and row.get("dive_point_id")}
     area_ids = {row.get("area_id") for row in source_tables.get("dive_points", []) if row.get("id") in point_ids and row.get("area_id")}
     region_ids = {row.get("region_id") for row in source_tables.get("areas", []) if row.get("id") in area_ids and row.get("region_id")}
@@ -333,6 +390,10 @@ def filter_payload_for_restore(payload, user, restore_all: bool):
             tables[table_name] = [row for row in rows if row.get("user_id") == user_id]
         elif table_name == "friends":
             tables[table_name] = [row for row in rows if row.get("requester_id") == user_id or row.get("addressee_id") == user_id]
+        elif table_name == "friend_groups":
+            tables[table_name] = [row for row in rows if row.get("id") in group_ids]
+        elif table_name == "friend_group_members":
+            tables[table_name] = [row for row in rows if row.get("group_id") in group_ids]
         elif table_name == "dive_logs":
             tables[table_name] = [row for row in rows if row.get("user_id") == user_id]
         elif table_name == "dive_profile_samples":
@@ -341,6 +402,10 @@ def filter_payload_for_restore(payload, user, restore_all: bool):
             tables[table_name] = [row for row in rows if row.get("owner_id") == user_id]
         elif table_name in {"trip_participants", "trip_photos"}:
             tables[table_name] = [row for row in rows if row.get("trip_id") in trip_ids]
+        elif table_name == "shared_albums":
+            tables[table_name] = [row for row in rows if row.get("id") in album_ids]
+        elif table_name == "shared_album_photos":
+            tables[table_name] = [row for row in rows if row.get("album_id") in album_ids]
         elif table_name == "dive_points":
             tables[table_name] = [row for row in rows if row.get("id") in point_ids]
         elif table_name == "areas":
@@ -407,6 +472,8 @@ def table_label(table_name: str):
         "users": "사용자",
         "user_settings": "사용자 설정",
         "friends": "친구",
+        "friend_groups": "친구 그룹",
+        "friend_group_members": "친구 그룹 구성원",
         "countries": "국가",
         "regions": "지역",
         "areas": "세부지역",
@@ -416,4 +483,6 @@ def table_label(table_name: str):
         "dive_trips": "투어",
         "trip_participants": "투어 참가자",
         "trip_photos": "투어 사진",
+        "shared_albums": "공유 사진첩",
+        "shared_album_photos": "공유 사진",
     }.get(table_name, table_name)

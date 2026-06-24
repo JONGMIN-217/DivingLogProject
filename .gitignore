@@ -3,6 +3,11 @@ venv/
 __pycache__/
 *.py[cod]
 .DS_Store
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
 uploads/*
 !uploads/.gitkeep
 divinglog.db
+divinglog.db-*

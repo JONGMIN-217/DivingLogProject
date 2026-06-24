@@ -1,5 +1,7 @@
 from sqlalchemy import Boolean, Column, Integer, String, ForeignKey, Float, Date, Time, Text, DateTime
 from sqlalchemy.orm import relationship
+from datetime import datetime
+
 from app.database import Base
 
 
@@ -91,6 +93,29 @@ class Friend(Base):
     addressee = relationship("User", foreign_keys=[addressee_id])
 
 
+class FriendGroup(Base):
+    __tablename__ = "friend_groups"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    owner = relationship("User", foreign_keys=[owner_id])
+    members = relationship("FriendGroupMember", back_populates="group", cascade="all, delete-orphan")
+
+
+class FriendGroupMember(Base):
+    __tablename__ = "friend_group_members"
+
+    id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(Integer, ForeignKey("friend_groups.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    group = relationship("FriendGroup", back_populates="members")
+    user = relationship("User")
+
+
 class DiveTrip(Base):
     __tablename__ = "dive_trips"
 
@@ -127,6 +152,42 @@ class TripPhoto(Base):
     caption = Column(String, nullable=True)
 
     trip = relationship("DiveTrip", back_populates="photos")
+    uploader = relationship("User")
+
+
+class SharedAlbum(Base):
+    __tablename__ = "shared_albums"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    context_type = Column(String, nullable=False, index=True)
+    context_id = Column(Integer, nullable=False, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    owner = relationship("User")
+    photos = relationship(
+        "SharedAlbumPhoto",
+        back_populates="album",
+        cascade="all, delete-orphan",
+        order_by="SharedAlbumPhoto.id.desc()",
+    )
+
+
+class SharedAlbumPhoto(Base):
+    __tablename__ = "shared_album_photos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    album_id = Column(Integer, ForeignKey("shared_albums.id"), nullable=False, index=True)
+    uploader_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    image_path = Column(String, nullable=False)
+    original_filename = Column(String, nullable=True)
+    caption = Column(String, nullable=True)
+    is_representative = Column(Boolean, nullable=False, default=False)
+    is_cover = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    album = relationship("SharedAlbum", back_populates="photos")
     uploader = relationship("User")
 
 

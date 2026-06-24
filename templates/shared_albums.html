@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-heading">
+    <div>
+        <h1>공유 사진첩</h1>
+        <p>투어 참가자와 친구 그룹 구성원끼리 사진을 공유합니다.</p>
+    </div>
+</div>
+
+{% if error %}<div class="flash-error">{{ error }}</div>{% endif %}
+{% if message %}<div class="flash-message">{{ message }}</div>{% endif %}
+
+<section class="album-section">
+    <div class="section-heading">
+        <h2>내 사진첩</h2>
+        <span>{{ album_cards|length }}개</span>
+    </div>
+    {% if album_cards %}
+    <div class="album-grid">
+        {% for card in album_cards %}
+        <a class="album-card" href="/albums/{{ card.album.id }}">
+            <div class="album-cover">
+                {% if card.cover %}
+                <img src="/{{ card.cover.image_path }}" alt="{{ card.album.name }} 커버">
+                {% else %}
+                <div class="album-cover-empty">사진 없음</div>
+                {% endif %}
+            </div>
+            <div class="album-card-body">
+                <span class="album-context">{{ card.context_label }}</span>
+                <h3>{{ card.album.name }}</h3>
+                <span>사진 {{ card.album.photos|length }}개</span>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">참여 중인 공유 사진첩이 없습니다.</div>
+    {% endif %}
+</section>
+
+<section class="album-section album-group-builder">
+    <div class="section-heading">
+        <div>
+            <h2>친구 그룹 사진첩 만들기</h2>
+            <p>친구를 선택하면 그룹 구성원만 접근할 수 있는 사진첩이 생성됩니다.</p>
+        </div>
+    </div>
+    <form action="/friend-groups" method="post" class="album-group-form">
+        <label for="group-name">그룹 이름</label>
+        <input id="group-name" name="name" type="text" placeholder="예: 제주 주말 다이버" required>
+
+        <fieldset>
+            <legend>구성원</legend>
+            {% if friends %}
+            <div class="member-check-grid">
+                {% for friend in friends %}
+                <label>
+                    <input type="checkbox" name="member_ids" value="{{ friend.id }}">
+                    {{ friend.nickname or friend.username }}
+                </label>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p>추가할 친구가 없습니다. 친구 요청과 승인을 먼저 완료하세요.</p>
+            {% endif %}
+        </fieldset>
+        <button type="submit">그룹 사진첩 만들기</button>
+    </form>
+</section>
+
+{% if groups %}
+<section class="album-section">
+    <div class="section-heading"><h2>내 친구 그룹</h2></div>
+    <div class="friend-group-list">
+        {% for group in groups %}
+        <div class="friend-group-row">
+            <strong>{{ group.name }}</strong>
+            <span>
+                {% for member in group.members %}
+                {{ member.user.nickname or member.user.username }}{% if not loop.last %}, {% endif %}
+                {% endfor %}
+            </span>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+{% endblock %}

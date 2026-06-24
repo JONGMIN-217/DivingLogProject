@@ -1,16 +1,19 @@
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, HTTPException, Request, Form
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from sqlalchemy import and_, func, inspect, or_, text
 from sqlalchemy.orm import joinedload
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from datetime import date, datetime, time
 from html import escape as html_escape
-from io import StringIO
+from io import BytesIO, StringIO
 import hashlib
 import json
+import re
 import zipfile
 
 from app.auth import hash_password, verify_password
@@ -23,7 +26,11 @@ from app.models import (
     DiveProfileSample,
     DiveTrip,
     Friend,
+    FriendGroup,
+    FriendGroupMember,
     Region,
+    SharedAlbum,
+    SharedAlbumPhoto,
     TripParticipant,
     TripPhoto,
     User,
@@ -73,7 +80,7 @@ from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import PlainTextResponse
 import csv
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import parse_qsl, quote, urlencode
 
 from app.config import settings
 
@@ -86,6 +93,8 @@ IMPORT_UPLOAD_DIR = UPLOAD_DIR / "imports"
 IMPORT_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 TRIP_UPLOAD_DIR = UPLOAD_DIR / "trips"
 TRIP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+ALBUM_UPLOAD_DIR = UPLOAD_DIR / "albums"
+ALBUM_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 BACKUP_UPLOAD_DIR = UPLOAD_DIR / "backups"
 BACKUP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -97,12 +106,11 @@ ALLOWED_IMAGE_EXTENSIONS = {
     ".webp": "image/webp",
 }
 ALLOWED_IMPORT_EXTENSIONS = {".csv", ".xml", ".uddf", ".db"}
-MAX_IMAGE_UPLOAD_SIZE = 5 * 1024 * 1024
+MAX_IMAGE_UPLOAD_SIZE = settings.max_image_upload_size_mb * 1024 * 1024
 MAX_IMPORT_UPLOAD_SIZE = settings.max_import_file_size_mb * 1024 * 1024
-MAX_BACKUP_UPLOAD_SIZE = 1024 * 1024 * 1024
+MAX_BACKUP_UPLOAD_SIZE = settings.max_backup_upload_size_mb * 1024 * 1024
 IMPORT_PREVIEW_PAGE_SIZE = 20
 
-app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 settings.static_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(settings.static_dir)), name="static")
 
@@ -137,6 +145,7 @@ class LoginRequiredMiddleware(BaseHTTPMiddleware):
         public_paths = (
             "/login",
             "/register",
+            "/healthz",
             "/static",
             "/favicon.ico",
         )
@@ -164,14 +173,38 @@ class LoginRequiredMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(self)",
+        )
+        if settings.is_production:
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains",
+            )
+        return response
+
+
 app.add_middleware(LoginRequiredMiddleware)
 app.add_middleware(CsrfOriginMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.secret_key,
     same_site="lax",
-    https_only=False,
+    https_only=settings.session_https_only,
+    max_age=settings.session_max_age_seconds,
 )
+if settings.trusted_hosts:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
+if settings.force_https:
+    app.add_middleware(HTTPSRedirectMiddleware)
 
 
 def parse_time(value: str | None):
@@ -474,12 +507,107 @@ def is_trip_participant(db, trip_id: int, user_id: int):
     )
 
 
+def is_friend_group_member(db, group_id: int, user_id: int):
+    return (
+        db.query(FriendGroupMember)
+        .filter(
+            FriendGroupMember.group_id == group_id,
+            FriendGroupMember.user_id == user_id,
+        )
+        .first()
+        is not None
+    )
+
+
+def can_access_album(db, album: SharedAlbum, user_id: int):
+    if album.context_type == "TRIP":
+        return is_trip_participant(db, album.context_id, user_id)
+    if album.context_type == "FRIEND_GROUP":
+        return is_friend_group_member(db, album.context_id, user_id)
+    return False
+
+
+def ensure_trip_album(db, trip: DiveTrip):
+    album = (
+        db.query(SharedAlbum)
+        .filter(
+            SharedAlbum.context_type == "TRIP",
+            SharedAlbum.context_id == trip.id,
+        )
+        .first()
+    )
+    if not album:
+        album = SharedAlbum(
+            name=f"{trip.name} 사진첩",
+            context_type="TRIP",
+            context_id=trip.id,
+            owner_id=trip.owner_id,
+        )
+        db.add(album)
+        db.flush()
+
+    existing_paths = {
+        row[0]
+        for row in db.query(SharedAlbumPhoto.image_path)
+        .filter(SharedAlbumPhoto.album_id == album.id)
+        .all()
+    }
+    for legacy_photo in trip.photos:
+        if legacy_photo.image_path in existing_paths:
+            continue
+        db.add(
+            SharedAlbumPhoto(
+                album_id=album.id,
+                uploader_id=legacy_photo.uploader_id,
+                image_path=legacy_photo.image_path,
+                original_filename=Path(legacy_photo.image_path).name,
+                caption=legacy_photo.caption,
+                is_cover=not existing_paths,
+                is_representative=not existing_paths,
+            )
+        )
+        existing_paths.add(legacy_photo.image_path)
+
+    db.commit()
+    db.refresh(album)
+    return album
+
+
+def album_context_label(db, album: SharedAlbum):
+    if album.context_type == "TRIP":
+        trip = db.query(DiveTrip).filter(DiveTrip.id == album.context_id).first()
+        return f"투어 · {trip.name}" if trip else "삭제된 투어"
+    group = db.query(FriendGroup).filter(FriendGroup.id == album.context_id).first()
+    return f"친구 그룹 · {group.name}" if group else "삭제된 친구 그룹"
+
+
+def stored_upload_path(image_path: str):
+    relative_path = image_path.removeprefix("uploads/")
+    candidate = (UPLOAD_DIR / relative_path).resolve()
+    upload_root = UPLOAD_DIR.resolve()
+    if candidate != upload_root and upload_root not in candidate.parents:
+        return None
+    return candidate
+
+
 def format_file_size(size_bytes: int):
     size_mb = size_bytes / (1024 * 1024)
     if size_mb.is_integer():
         return f"{int(size_mb)}MB"
 
     return f"{size_mb:.1f}MB"
+
+
+def image_signature_matches(suffix: str, header: bytes):
+    if suffix in {".jpg", ".jpeg"}:
+        return header.startswith(b"\xff\xd8\xff")
+    if suffix == ".png":
+        return header.startswith(b"\x89PNG\r\n\x1a\n")
+    if suffix == ".gif":
+        return header.startswith((b"GIF87a", b"GIF89a"))
+    if suffix == ".webp":
+        return len(header) >= 12 and header.startswith(b"RIFF") and header[8:12] == b"WEBP"
+    return True
 
 
 def validate_upload(upload_file: UploadFile, allowed_extensions: set[str], allowed_content_types: set[str], max_size: int):
@@ -494,6 +622,13 @@ def validate_upload(upload_file: UploadFile, allowed_extensions: set[str], allow
     upload_size = getattr(upload_file, "size", None)
     if upload_size is not None and upload_size > max_size:
         return None, f"파일 크기는 {format_file_size(max_size)} 이하만 허용됩니다."
+
+    if suffix in ALLOWED_IMAGE_EXTENSIONS:
+        position = upload_file.file.tell()
+        header = upload_file.file.read(16)
+        upload_file.file.seek(position)
+        if not image_signature_matches(suffix, header):
+            return None, "파일 확장자와 실제 이미지 형식이 일치하지 않습니다."
 
     return suffix, None
 
@@ -1713,6 +1848,30 @@ def ensure_initial_admin():
         if has_admin:
             return
 
+        if settings.bootstrap_admin_username and settings.bootstrap_admin_password:
+            user = (
+                db.query(User)
+                .filter(User.username == settings.bootstrap_admin_username)
+                .first()
+            )
+            if user:
+                user.is_admin = True
+                user.password_hash = hash_password(settings.bootstrap_admin_password)
+            else:
+                user = User(
+                    username=settings.bootstrap_admin_username,
+                    nickname=settings.bootstrap_admin_username,
+                    password_hash=hash_password(settings.bootstrap_admin_password),
+                    is_admin=True,
+                    created_at=datetime.now(),
+                )
+                db.add(user)
+            db.commit()
+            return
+
+        if settings.is_production:
+            return
+
         first_user = db.query(User).order_by(User.id.asc()).first()
         if first_user:
             first_user.is_admin = True
@@ -1722,20 +1881,95 @@ def ensure_initial_admin():
 
 
 Base.metadata.create_all(bind=engine)
-ensure_dive_log_time_columns()
-ensure_user_columns()
-ensure_region_country_columns()
-ensure_dive_point_columns()
-ensure_marine_weather_columns()
+if engine.dialect.name == "sqlite":
+    ensure_dive_log_time_columns()
+    ensure_user_columns()
+    ensure_region_country_columns()
+    ensure_dive_point_columns()
+    ensure_marine_weather_columns()
 ensure_default_country()
 ensure_initial_admin()
-with SessionLocal() as db:
-    recalculate_all_dive_numbers(db)
-    db.commit()
+if settings.run_startup_maintenance:
+    with SessionLocal() as db:
+        recalculate_all_dive_numbers(db)
+        db.commit()
+
+
+@app.get("/healthz")
+def healthcheck():
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        return {"status": "ok", "database": engine.dialect.name}
+    except Exception:
+        return JSONResponse(
+            {"status": "error", "database": "연결 실패"},
+            status_code=503,
+        )
+
+
+@app.get("/uploads/{file_path:path}")
+def protected_upload(request: Request, file_path: str):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        if not current_user:
+            raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
+
+        stored_name = f"uploads/{file_path.lstrip('/')}"
+        allowed = False
+
+        album_photo = (
+            db.query(SharedAlbumPhoto)
+            .options(joinedload(SharedAlbumPhoto.album))
+            .filter(SharedAlbumPhoto.image_path == stored_name)
+            .first()
+        )
+        if album_photo:
+            allowed = can_access_album(db, album_photo.album, current_user.id)
+
+        if not allowed:
+            trip_photo = db.query(TripPhoto).filter(TripPhoto.image_path == stored_name).first()
+            if trip_photo:
+                allowed = is_trip_participant(db, trip_photo.trip_id, current_user.id)
+
+        if not allowed:
+            log_photo = (
+                db.query(DiveLog)
+                .filter(DiveLog.image_path == stored_name)
+                .filter(
+                    or_(
+                        DiveLog.user_id == current_user.id,
+                        DiveLog.user_id.is_(None),
+                        current_user.is_admin,
+                    )
+                )
+                .first()
+            )
+            allowed = log_photo is not None
+
+        if not allowed:
+            raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
+
+        path = stored_upload_path(stored_name)
+        if not path or not path.is_file():
+            raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
+
+        return FileResponse(
+            path,
+            headers={
+                "Cache-Control": "private, max-age=3600",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    finally:
+        db.close()
 
 
 @app.get("/register")
 def register_page(request: Request):
+    if not settings.allow_registration:
+        raise HTTPException(status_code=404, detail="회원가입이 비활성화되어 있습니다.")
     return templates.TemplateResponse(
         "register.html",
         {
@@ -1753,6 +1987,8 @@ def register(
     password: str = Form(...),
     password_confirm: str = Form(...),
 ):
+    if not settings.allow_registration:
+        raise HTTPException(status_code=404, detail="회원가입이 비활성화되어 있습니다.")
     username = username.strip()
 
     db = SessionLocal()
@@ -1791,7 +2027,7 @@ def register(
                 status_code=400,
             )
 
-        is_first_user = db.query(func.count(User.id)).scalar() == 0
+        is_first_user = not settings.is_production and db.query(func.count(User.id)).scalar() == 0
         user = User(
             username=username,
             nickname=username,
@@ -2101,6 +2337,12 @@ def backup_restore_confirm(
         if not current_user:
             return login_required_redirect(request)
 
+        if not re.fullmatch(r"[0-9a-f]{32}", restore_id):
+            return RedirectResponse(
+                url=f"/account/backup?{urlencode({'error': '복구 요청 식별자가 올바르지 않습니다.'})}",
+                status_code=303,
+            )
+
         suffix = restore_suffix if restore_suffix in {".json", ".zip"} else ".json"
         restore_path = BACKUP_UPLOAD_DIR / f"restore_{restore_id}{suffix}"
         if not restore_path.exists():
@@ -2296,6 +2538,403 @@ def reject_friend_request(request: Request, friendship_id: int):
         db.close()
 
 
+@app.get("/albums")
+def shared_albums_page(request: Request):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        trips = (
+            db.query(DiveTrip)
+            .join(TripParticipant, TripParticipant.trip_id == DiveTrip.id)
+            .options(joinedload(DiveTrip.photos))
+            .filter(TripParticipant.user_id == current_user.id)
+            .order_by(DiveTrip.start_date.desc(), DiveTrip.id.desc())
+            .all()
+        )
+        for trip in trips:
+            ensure_trip_album(db, trip)
+
+        group_ids = [
+            row[0]
+            for row in db.query(FriendGroupMember.group_id)
+            .filter(FriendGroupMember.user_id == current_user.id)
+            .all()
+        ]
+        trip_ids = [trip.id for trip in trips]
+        access_conditions = []
+        if trip_ids:
+            access_conditions.append(
+                and_(SharedAlbum.context_type == "TRIP", SharedAlbum.context_id.in_(trip_ids))
+            )
+        if group_ids:
+            access_conditions.append(
+                and_(
+                    SharedAlbum.context_type == "FRIEND_GROUP",
+                    SharedAlbum.context_id.in_(group_ids),
+                )
+            )
+        albums = (
+            db.query(SharedAlbum)
+            .options(joinedload(SharedAlbum.photos).joinedload(SharedAlbumPhoto.uploader))
+            .filter(or_(*access_conditions))
+            .order_by(SharedAlbum.created_at.desc(), SharedAlbum.id.desc())
+            .all()
+            if access_conditions
+            else []
+        )
+        album_cards = []
+        for album in albums:
+            cover = next((photo for photo in album.photos if photo.is_cover), None)
+            album_cards.append(
+                {
+                    "album": album,
+                    "cover": cover or (album.photos[0] if album.photos else None),
+                    "context_label": album_context_label(db, album),
+                }
+            )
+
+        groups = (
+            db.query(FriendGroup)
+            .join(FriendGroupMember, FriendGroupMember.group_id == FriendGroup.id)
+            .options(joinedload(FriendGroup.members).joinedload(FriendGroupMember.user))
+            .filter(FriendGroupMember.user_id == current_user.id)
+            .order_by(FriendGroup.created_at.desc())
+            .all()
+        )
+        return templates.TemplateResponse(
+            "shared_albums.html",
+            {
+                "request": request,
+                "album_cards": album_cards,
+                "groups": groups,
+                "friends": get_accepted_friends(db, current_user.id),
+                "message": request.query_params.get("message"),
+                "error": request.query_params.get("error"),
+            },
+        )
+    finally:
+        db.close()
+
+
+@app.post("/friend-groups")
+def create_friend_group(
+    request: Request,
+    name: str = Form(...),
+    member_ids: list[str] = Form([]),
+):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        cleaned_name = name.strip()
+        if not cleaned_name:
+            return RedirectResponse(url="/albums?error=친구 그룹 이름을 입력하세요.", status_code=303)
+
+        friend_ids = set(get_accepted_friend_ids(db, current_user.id))
+        selected_ids = {
+            member_id
+            for member_id in (parse_int_filter(value) for value in member_ids)
+            if member_id
+        }
+        if selected_ids - friend_ids:
+            return RedirectResponse(url="/albums?error=친구만 그룹 구성원으로 추가할 수 있습니다.", status_code=303)
+
+        group = FriendGroup(name=cleaned_name, owner_id=current_user.id)
+        db.add(group)
+        db.flush()
+        for user_id in {current_user.id, *selected_ids}:
+            db.add(FriendGroupMember(group_id=group.id, user_id=user_id))
+        album = SharedAlbum(
+            name=f"{cleaned_name} 사진첩",
+            context_type="FRIEND_GROUP",
+            context_id=group.id,
+            owner_id=current_user.id,
+        )
+        db.add(album)
+        db.commit()
+        db.refresh(album)
+        return RedirectResponse(url=f"/albums/{album.id}?message=친구 그룹 사진첩을 만들었습니다.", status_code=303)
+    finally:
+        db.close()
+
+
+@app.get("/albums/{album_id}")
+def shared_album_detail(request: Request, album_id: int):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        album = (
+            db.query(SharedAlbum)
+            .options(joinedload(SharedAlbum.photos).joinedload(SharedAlbumPhoto.uploader))
+            .filter(SharedAlbum.id == album_id)
+            .first()
+        )
+        if not album or not can_access_album(db, album, current_user.id):
+            return RedirectResponse(url="/albums?error=이 사진첩에 접근할 권한이 없습니다.", status_code=303)
+
+        context_members = []
+        if album.context_type == "TRIP":
+            context_members = (
+                db.query(TripParticipant)
+                .options(joinedload(TripParticipant.user))
+                .filter(TripParticipant.trip_id == album.context_id)
+                .all()
+            )
+        elif album.context_type == "FRIEND_GROUP":
+            context_members = (
+                db.query(FriendGroupMember)
+                .options(joinedload(FriendGroupMember.user))
+                .filter(FriendGroupMember.group_id == album.context_id)
+                .all()
+            )
+
+        return templates.TemplateResponse(
+            "shared_album_detail.html",
+            {
+                "request": request,
+                "album": album,
+                "context_label": album_context_label(db, album),
+                "context_members": context_members,
+                "current_user": current_user,
+                "message": request.query_params.get("message"),
+                "error": request.query_params.get("error"),
+            },
+        )
+    finally:
+        db.close()
+
+
+@app.post("/albums/{album_id}/photos")
+async def upload_shared_album_photos(
+    request: Request,
+    album_id: int,
+    caption: str = Form(""),
+    photos: list[UploadFile] = File(...),
+):
+    db = SessionLocal()
+    saved_paths = []
+    try:
+        current_user = get_current_user(request, db)
+        album = db.query(SharedAlbum).filter(SharedAlbum.id == album_id).first()
+        if not album or not can_access_album(db, album, current_user.id):
+            return RedirectResponse(url="/albums?error=이 사진첩에 사진을 올릴 권한이 없습니다.", status_code=303)
+
+        uploads = [photo for photo in photos if photo and photo.filename]
+        if not uploads:
+            return RedirectResponse(url=f"/albums/{album_id}?error=업로드할 사진을 선택하세요.", status_code=303)
+
+        has_cover = (
+            db.query(SharedAlbumPhoto.id)
+            .filter(SharedAlbumPhoto.album_id == album.id, SharedAlbumPhoto.is_cover.is_(True))
+            .first()
+            is not None
+        )
+        has_representative = (
+            db.query(SharedAlbumPhoto.id)
+            .filter(
+                SharedAlbumPhoto.album_id == album.id,
+                SharedAlbumPhoto.is_representative.is_(True),
+            )
+            .first()
+            is not None
+        )
+        for index, photo in enumerate(uploads):
+            suffix, upload_error = validate_upload(
+                photo,
+                set(ALLOWED_IMAGE_EXTENSIONS.keys()),
+                set(ALLOWED_IMAGE_EXTENSIONS.values()),
+                MAX_IMAGE_UPLOAD_SIZE,
+            )
+            if upload_error:
+                raise ValueError(f"{Path(photo.filename).name}: {upload_error}")
+
+            filename = f"{uuid.uuid4().hex}{suffix}"
+            file_location = ALBUM_UPLOAD_DIR / filename
+            upload_error = save_upload_file(photo, file_location, MAX_IMAGE_UPLOAD_SIZE)
+            if upload_error:
+                raise ValueError(f"{Path(photo.filename).name}: {upload_error}")
+            saved_paths.append(file_location)
+            db.add(
+                SharedAlbumPhoto(
+                    album_id=album.id,
+                    uploader_id=current_user.id,
+                    image_path=f"uploads/albums/{filename}",
+                    original_filename=Path(photo.filename).name,
+                    caption=caption.strip() or None,
+                    is_cover=not has_cover and index == 0,
+                    is_representative=not has_representative and index == 0,
+                )
+            )
+        db.commit()
+        return RedirectResponse(
+            url=f"/albums/{album_id}?message=사진 {len(uploads)}개를 업로드했습니다.",
+            status_code=303,
+        )
+    except ValueError as exc:
+        db.rollback()
+        for path in saved_paths:
+            path.unlink(missing_ok=True)
+        return RedirectResponse(url=f"/albums/{album_id}?error={exc}", status_code=303)
+    finally:
+        db.close()
+
+
+@app.post("/albums/{album_id}/photos/{photo_id}/representative")
+def set_album_representative(request: Request, album_id: int, photo_id: int):
+    return update_album_photo_role(request, album_id, photo_id, "representative")
+
+
+@app.post("/albums/{album_id}/photos/{photo_id}/cover")
+def set_album_cover(request: Request, album_id: int, photo_id: int):
+    return update_album_photo_role(request, album_id, photo_id, "cover")
+
+
+def update_album_photo_role(request: Request, album_id: int, photo_id: int, role: str):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        album = db.query(SharedAlbum).filter(SharedAlbum.id == album_id).first()
+        photo = (
+            db.query(SharedAlbumPhoto)
+            .filter(SharedAlbumPhoto.id == photo_id, SharedAlbumPhoto.album_id == album_id)
+            .first()
+        )
+        if not album or not photo or not can_access_album(db, album, current_user.id):
+            return RedirectResponse(url="/albums?error=사진을 변경할 권한이 없습니다.", status_code=303)
+
+        column = (
+            SharedAlbumPhoto.is_cover
+            if role == "cover"
+            else SharedAlbumPhoto.is_representative
+        )
+        db.query(SharedAlbumPhoto).filter(SharedAlbumPhoto.album_id == album_id).update(
+            {column: False},
+            synchronize_session=False,
+        )
+        setattr(photo, "is_cover" if role == "cover" else "is_representative", True)
+        db.commit()
+        label = "앨범 커버" if role == "cover" else "대표 사진"
+        return RedirectResponse(url=f"/albums/{album_id}?message={label}을 변경했습니다.", status_code=303)
+    finally:
+        db.close()
+
+
+@app.post("/albums/{album_id}/photos/{photo_id}/delete")
+def delete_shared_album_photo(request: Request, album_id: int, photo_id: int):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        album = db.query(SharedAlbum).filter(SharedAlbum.id == album_id).first()
+        photo = (
+            db.query(SharedAlbumPhoto)
+            .filter(SharedAlbumPhoto.id == photo_id, SharedAlbumPhoto.album_id == album_id)
+            .first()
+        )
+        if not album or not photo or not can_access_album(db, album, current_user.id):
+            return RedirectResponse(url="/albums?error=사진을 삭제할 권한이 없습니다.", status_code=303)
+        if current_user.id not in {album.owner_id, photo.uploader_id}:
+            return RedirectResponse(
+                url=f"/albums/{album_id}?error=사진 업로더 또는 사진첩 소유자만 삭제할 수 있습니다.",
+                status_code=303,
+            )
+
+        was_cover = photo.is_cover
+        was_representative = photo.is_representative
+        image_path = stored_upload_path(photo.image_path)
+        same_path_count = (
+            db.query(func.count(SharedAlbumPhoto.id))
+            .filter(SharedAlbumPhoto.image_path == photo.image_path)
+            .scalar()
+            or 0
+        )
+        db.delete(photo)
+        db.flush()
+        replacement = (
+            db.query(SharedAlbumPhoto)
+            .filter(SharedAlbumPhoto.album_id == album_id)
+            .order_by(SharedAlbumPhoto.id.desc())
+            .first()
+        )
+        if replacement and was_cover:
+            replacement.is_cover = True
+        if replacement and was_representative:
+            replacement.is_representative = True
+        db.commit()
+        if same_path_count == 1 and image_path and image_path.exists():
+            legacy_reference = (
+                db.query(TripPhoto.id).filter(TripPhoto.image_path == photo.image_path).first()
+            )
+            if not legacy_reference:
+                image_path.unlink(missing_ok=True)
+        return RedirectResponse(url=f"/albums/{album_id}?message=사진을 삭제했습니다.", status_code=303)
+    finally:
+        db.close()
+
+
+@app.get("/albums/{album_id}/photos/{photo_id}/download")
+def download_shared_album_photo(request: Request, album_id: int, photo_id: int):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        album = db.query(SharedAlbum).filter(SharedAlbum.id == album_id).first()
+        photo = (
+            db.query(SharedAlbumPhoto)
+            .filter(SharedAlbumPhoto.id == photo_id, SharedAlbumPhoto.album_id == album_id)
+            .first()
+        )
+        if not album or not photo or not can_access_album(db, album, current_user.id):
+            return RedirectResponse(url="/albums?error=사진을 다운로드할 권한이 없습니다.", status_code=303)
+        path = stored_upload_path(photo.image_path)
+        if not path or not path.is_file():
+            return RedirectResponse(url=f"/albums/{album_id}?error=사진 파일을 찾을 수 없습니다.", status_code=303)
+        return FileResponse(path, filename=photo.original_filename or path.name)
+    finally:
+        db.close()
+
+
+@app.get("/albums/{album_id}/download")
+def download_shared_album(request: Request, album_id: int):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        album = (
+            db.query(SharedAlbum)
+            .options(joinedload(SharedAlbum.photos))
+            .filter(SharedAlbum.id == album_id)
+            .first()
+        )
+        if not album or not can_access_album(db, album, current_user.id):
+            return RedirectResponse(url="/albums?error=사진첩을 다운로드할 권한이 없습니다.", status_code=303)
+
+        buffer = BytesIO()
+        included = 0
+        used_names = set()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            for photo in album.photos:
+                path = stored_upload_path(photo.image_path)
+                if not path or not path.is_file():
+                    continue
+                base_name = Path(photo.original_filename or path.name).name
+                archive_name = base_name
+                suffix = 2
+                while archive_name in used_names:
+                    archive_name = f"{Path(base_name).stem}_{suffix}{Path(base_name).suffix}"
+                    suffix += 1
+                used_names.add(archive_name)
+                archive.write(path, arcname=archive_name)
+                included += 1
+        if included == 0:
+            return RedirectResponse(url=f"/albums/{album_id}?error=다운로드할 사진이 없습니다.", status_code=303)
+        buffer.seek(0)
+        safe_name = "".join(character for character in album.name if character.isalnum() or character in " _-").strip()
+        download_name = f"{safe_name or 'album'}.zip"
+        headers = {
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(download_name)}"
+        }
+        return StreamingResponse(buffer, media_type="application/zip", headers=headers)
+    finally:
+        db.close()
+
+
 @app.get("/trips")
 def trips_page(request: Request):
     db = SessionLocal()
@@ -2386,12 +3025,14 @@ def trip_detail(request: Request, trip_id: int):
         )
         if not trip:
             return RedirectResponse(url="/trips?error=투어를 찾을 수 없습니다.", status_code=303)
+        album = ensure_trip_album(db, trip)
 
         return templates.TemplateResponse(
             "trip_detail.html",
             {
                 "request": request,
                 "trip": trip,
+                "album": album,
                 "error": request.query_params.get("error"),
                 "message": request.query_params.get("message"),
             },
@@ -2440,6 +3081,13 @@ async def upload_trip_photo(
         )
         db.add(trip_photo)
         db.commit()
+        trip = (
+            db.query(DiveTrip)
+            .options(joinedload(DiveTrip.photos))
+            .filter(DiveTrip.id == trip_id)
+            .first()
+        )
+        ensure_trip_album(db, trip)
 
         return RedirectResponse(url=f"/trips/{trip_id}?message=사진을 업로드했습니다.", status_code=303)
     finally:
