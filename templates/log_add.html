@@ -234,18 +234,14 @@
 <h3>기타 정보</h3>
 <div class="field-grid">
 <div class="field">
-<label for="buddyUser">친구 선택</label>
-<select name="buddy_user_id" id="buddyUser">
-<option value="">선택 안 함</option>
-{% for friend in friends %}
-<option value="{{ friend.id }}">{{ friend.username }}</option>
-{% endfor %}
-</select>
-</div>
-
-<div class="field">
 <label for="buddy">버디</label>
-<input type="text" name="buddy" id="buddy" placeholder="예: 김다이버, 다이빙클럽 팀">
+<input type="text" name="buddy" id="buddy" list="buddySuggestions" autocomplete="off" placeholder="친구 이름 또는 버디 이름 입력">
+<input type="hidden" name="buddy_user_id" id="buddyUserId">
+<datalist id="buddySuggestions">
+{% for friend in friends %}
+<option value="{% if friend.nickname and friend.nickname != friend.username %}{{ friend.nickname }} ({{ friend.username }}){% else %}{{ friend.username }}{% endif %}" data-user-id="{{ friend.id }}"></option>
+{% endfor %}
+</datalist>
 </div>
 
 <div class="field">
@@ -447,11 +443,12 @@ async function updateMarineWeather(){
  }
 }
 
-document.getElementById("buddyUser").addEventListener("change", function(){
- const buddyInput=document.getElementById("buddy")
- if(!buddyInput.value && this.value){
-  buddyInput.value=this.options[this.selectedIndex].text
- }
+const buddyInput=document.getElementById("buddy")
+const buddyUserId=document.getElementById("buddyUserId")
+const buddyOptions=Array.from(document.querySelectorAll("#buddySuggestions option"))
+buddyInput.addEventListener("input", function(){
+ const matched=buddyOptions.find(option => option.value === this.value)
+ buddyUserId.value=matched ? matched.dataset.userId : ""
 })
 
 function calculateDiveTime(){

@@ -381,6 +381,87 @@ def get_accepted_friend_ids(db, user_id: int):
     return [friend.id for friend in get_accepted_friends(db, user_id)]
 
 
+def buddy_log_condition(friend: User):
+    names = {
+        value.strip().lower()
+        for value in (friend.username, friend.nickname)
+        if value and value.strip()
+    }
+    conditions = [DiveLog.buddy_user_id == friend.id]
+    conditions.extend(func.lower(func.trim(DiveLog.buddy)) == name for name in names)
+    return or_(*conditions)
+
+
+def friend_buddy_statistics(db, user_id: int, friend: User):
+    buddy_logs = (
+        db.query(DiveLog)
+        .options(joinedload(DiveLog.dive_point))
+        .filter(DiveLog.user_id == user_id)
+        .filter(buddy_log_condition(friend))
+        .order_by(DiveLog.dive_date.desc(), DiveLog.id.desc())
+        .all()
+    )
+    point_names = sorted({
+        log.dive_point.name
+        for log in buddy_logs
+        if log.dive_point and log.dive_point.name
+    })
+
+    user_trip_ids = {
+        row[0]
+        for row in db.query(TripParticipant.trip_id)
+        .filter(TripParticipant.user_id == user_id)
+        .all()
+    }
+    friend_trip_ids = {
+        row[0]
+        for row in db.query(TripParticipant.trip_id)
+        .filter(TripParticipant.user_id == friend.id)
+        .all()
+    }
+    shared_trip_ids = user_trip_ids & friend_trip_ids
+    shared_trips = (
+        db.query(DiveTrip)
+        .filter(DiveTrip.id.in_(shared_trip_ids or {-1}))
+        .order_by(DiveTrip.start_date.desc(), DiveTrip.id.desc())
+        .all()
+    )
+    return {
+        "user": friend,
+        "dive_count": len(buddy_logs),
+        "point_names": point_names,
+        "point_count": len(point_names),
+        "trips": shared_trips,
+        "trip_count": len(shared_trips),
+    }
+
+
+def resolve_buddy_selection(db, current_user: User, buddy_user_id, buddy_text: str | None):
+    selected_id = parse_int_filter(buddy_user_id)
+    friends = get_accepted_friends(db, current_user.id)
+    friend_by_id = {friend.id: friend for friend in friends}
+    selected_friend = friend_by_id.get(selected_id)
+
+    cleaned_text = (buddy_text or "").strip()
+    if not selected_friend and cleaned_text:
+        normalized = cleaned_text.casefold()
+        for friend in friends:
+            labels = {
+                (friend.username or "").strip().casefold(),
+                (friend.nickname or "").strip().casefold(),
+                f"{friend.nickname} ({friend.username})".strip().casefold()
+                if friend.nickname and friend.nickname != friend.username
+                else "",
+            }
+            if normalized in labels:
+                selected_friend = friend
+                break
+
+    if selected_friend:
+        return selected_friend.id, cleaned_text or user_display_name(selected_friend)
+    return None, cleaned_text or None
+
+
 def is_trip_participant(db, trip_id: int, user_id: int):
     return (
         db.query(TripParticipant)
@@ -2069,7 +2150,12 @@ def friends_page(request: Request):
             candidates = (
                 db.query(User)
                 .filter(User.id != current_user.id)
-                .filter(User.username.ilike(f"%{query}%"))
+                .filter(
+                    or_(
+                        User.username.ilike(f"%{query}%"),
+                        User.nickname.ilike(f"%{query}%"),
+                    )
+                )
                 .order_by(User.username.asc())
                 .limit(20)
                 .all()
@@ -2083,6 +2169,10 @@ def friends_page(request: Request):
                 )
 
         friends = get_accepted_friends(db, current_user.id)
+        friend_statistics = [
+            friend_buddy_statistics(db, current_user.id, friend)
+            for friend in friends
+        ]
         received_requests = (
             db.query(Friend)
             .options(joinedload(Friend.requester))
@@ -2111,6 +2201,7 @@ def friends_page(request: Request):
                 "query": query,
                 "search_results": search_results,
                 "friends": friends,
+                "friend_statistics": friend_statistics,
                 "received_requests": received_requests,
                 "sent_requests": sent_requests,
                 "error": request.query_params.get("error"),
@@ -3578,16 +3669,12 @@ async def add_log(
 
             file_path = f"uploads/{filename}"
 
-        selected_buddy_user_id = parse_int_filter(buddy_user_id)
-        if selected_buddy_user_id:
-            buddy_user = friendship_between(db, current_user.id, selected_buddy_user_id)
-            if not buddy_user or buddy_user.status != "accepted":
-                selected_buddy_user_id = None
-
-        buddy_text = buddy.strip() if buddy else None
-        if selected_buddy_user_id and not buddy_text:
-            selected_buddy = db.query(User).filter(User.id == selected_buddy_user_id).first()
-            buddy_text = selected_buddy.username if selected_buddy else None
+        selected_buddy_user_id, buddy_text = resolve_buddy_selection(
+            db,
+            current_user,
+            buddy_user_id,
+            buddy,
+        )
 
         log = DiveLog(
             user_id=current_user.id,
@@ -3665,13 +3752,15 @@ def edit_log_page(request: Request, log_id: int):
             return RedirectResponse(url="/logs", status_code=303)
 
         points = db.query(DivePoint).all()
+        friends = get_accepted_friends(db, current_user.id)
 
         return templates.TemplateResponse(
             "log_edit.html",
             {
                 "request": request,
                 "log": log,
-                "points": points
+                "points": points,
+                "friends": friends,
             }
         )
     finally:
@@ -3691,6 +3780,7 @@ def edit_log(
     water_temp: float = Form(...),
     visibility: float = Form(...),
     buddy: str = Form(""),
+    buddy_user_id: str = Form(""),
     start_pressure: int = Form(None),
     end_pressure: int = Form(None),
     note: str = Form("")
@@ -3720,7 +3810,14 @@ def edit_log(
         log.dive_time = dive_time
         log.water_temp = water_temp
         log.visibility = visibility
-        log.buddy = buddy
+        selected_buddy_user_id, buddy_text = resolve_buddy_selection(
+            db,
+            current_user,
+            buddy_user_id,
+            buddy,
+        )
+        log.buddy_user_id = selected_buddy_user_id
+        log.buddy = buddy_text
         log.start_pressure = start_pressure
         log.end_pressure = end_pressure
         log.note = note

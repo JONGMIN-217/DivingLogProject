@@ -1,117 +1,168 @@
 {% extends "base.html" %}
 
+{% block head %}
+<style>
+.friends-page{max-width:1100px}
+.friends-section{margin-bottom:18px;padding:16px;border:1px solid #e2e8f0;border-radius:8px;background:#fff}
+.friends-section h3{margin-top:0}
+.search-form{display:flex;flex-wrap:wrap;gap:8px}
+.search-form input{min-width:240px;padding:8px;border:1px solid #bbb;border-radius:6px;font:inherit}
+.btn{display:inline-block;padding:8px 12px;border:1px solid #bbb;border-radius:6px;background:#fff;color:#222;font:inherit;text-decoration:none;cursor:pointer}
+.btn-primary{border-color:#2364d2;background:#2364d2;color:#fff}
+.btn-danger{border-color:#c9342c;background:#c9342c;color:#fff}
+.friend-table{width:100%;border-collapse:collapse}
+.friend-table th,.friend-table td{padding:9px;border-bottom:1px solid #e5e7eb;text-align:left}
+.friend-table th{background:#f8fafc}
+.friend-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px}
+.friend-card{padding:14px;border:1px solid #e2e8f0;border-radius:8px;background:#fff}
+.friend-card h4{margin:0 0 4px}
+.friend-id{color:#64748b;font-size:13px}
+.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
+.stat{padding:9px;border-radius:6px;background:#f8fafc;text-align:center}
+.stat strong{display:block;font-size:20px}
+.stat span{color:#64748b;font-size:12px}
+.detail-list{margin:8px 0 0;padding-left:18px;color:#475569}
+.request-actions{display:flex;flex-wrap:wrap;gap:6px}
+.message{color:#137333;font-weight:700}
+.error{color:#b00020;font-weight:700}
+.empty{color:#777}
+@media(max-width:640px){
+    .friend-table{font-size:14px}
+    .stats-grid{grid-template-columns:1fr}
+}
+</style>
+{% endblock %}
+
 {% block content %}
+<div class="friends-page">
+    <h2>친구 관리</h2>
+    <p>친구를 신청하고 승인한 뒤 로그에서 버디로 선택할 수 있습니다.</p>
 
-<h2>친구</h2>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    {% if message %}<p class="message">{{ message }}</p>{% endif %}
 
-{% if error %}
-<div style="color:red; font-weight:bold;">{{ error }}</div>
-{% endif %}
+    <section class="friends-section">
+        <h3>친구 신청</h3>
+        <form class="search-form" action="/friends" method="get">
+            <input type="search" id="q" name="q" value="{{ query }}" placeholder="아이디 또는 닉네임 검색">
+            <button class="btn btn-primary" type="submit">사용자 검색</button>
+        </form>
 
-{% if message %}
-<div style="color:green; font-weight:bold;">{{ message }}</div>
-{% endif %}
+        {% if query %}
+        <h4>검색 결과</h4>
+        {% if search_results %}
+        <table class="friend-table">
+            <thead><tr><th>사용자</th><th>상태</th><th>관리</th></tr></thead>
+            <tbody>
+            {% for result in search_results %}
+            <tr>
+                <td>
+                    <strong>{{ result.user.nickname or result.user.username }}</strong>
+                    {% if result.user.nickname and result.user.nickname != result.user.username %}
+                    <div class="friend-id">{{ result.user.username }}</div>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if not result.friendship %}친구 아님
+                    {% elif result.friendship.status == "pending" %}승인 대기
+                    {% elif result.friendship.status == "accepted" %}친구
+                    {% else %}거절됨{% endif %}
+                </td>
+                <td>
+                    {% if not result.friendship or result.friendship.status == "rejected" %}
+                    <form action="/friends/request/{{ result.user.id }}" method="post">
+                        <button class="btn btn-primary" type="submit">친구 신청</button>
+                    </form>
+                    {% else %}-{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty">검색 결과가 없습니다.</p>
+        {% endif %}
+        {% endif %}
+    </section>
 
-<section>
-<h3>사용자 검색</h3>
-<form action="/friends" method="get">
-<label for="q">아이디 검색</label><br>
-<input type="search" id="q" name="q" value="{{ query }}" placeholder="친구 아이디를 입력하세요">
-<button type="submit">검색</button>
-</form>
+    <section class="friends-section">
+        <h3>받은 친구 신청</h3>
+        {% if received_requests %}
+        <table class="friend-table">
+            <thead><tr><th>사용자</th><th>관리</th></tr></thead>
+            <tbody>
+            {% for friendship in received_requests %}
+            <tr>
+                <td>{{ friendship.requester.nickname or friendship.requester.username }}</td>
+                <td>
+                    <div class="request-actions">
+                        <form action="/friends/{{ friendship.id }}/accept" method="post">
+                            <button class="btn btn-primary" type="submit">승인</button>
+                        </form>
+                        <form action="/friends/{{ friendship.id }}/reject" method="post">
+                            <button class="btn btn-danger" type="submit">거절</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty">받은 친구 신청이 없습니다.</p>
+        {% endif %}
+    </section>
 
-{% if query %}
-<h4>검색 결과</h4>
-{% if search_results %}
-<table border="1">
-<tr>
-<th>아이디</th>
-<th>상태</th>
-<th>관리</th>
-</tr>
-{% for result in search_results %}
-<tr>
-<td>{{ result.user.username }}</td>
-<td>
-{% if not result.friendship %}
-친구 아님
-{% elif result.friendship.status == "pending" %}
-요청 대기
-{% elif result.friendship.status == "accepted" %}
-친구
-{% else %}
-거절됨
-{% endif %}
-</td>
-<td>
-{% if not result.friendship or result.friendship.status == "rejected" %}
-<form action="/friends/request/{{ result.user.id }}" method="post">
-<button type="submit">친구 요청</button>
-</form>
-{% else %}
--
-{% endif %}
-</td>
-</tr>
-{% endfor %}
-</table>
-{% else %}
-<p>검색 결과가 없습니다.</p>
-{% endif %}
-{% endif %}
-</section>
+    <section class="friends-section">
+        <h3>보낸 친구 신청</h3>
+        {% if sent_requests %}
+        <ul>
+            {% for friendship in sent_requests %}
+            <li>{{ friendship.addressee.nickname or friendship.addressee.username }}님 승인 대기 중</li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="empty">승인 대기 중인 친구 신청이 없습니다.</p>
+        {% endif %}
+    </section>
 
-<section>
-<h3>받은 친구 요청</h3>
-{% if received_requests %}
-<table border="1">
-<tr>
-<th>아이디</th>
-<th>관리</th>
-</tr>
-{% for friendship in received_requests %}
-<tr>
-<td>{{ friendship.requester.username }}</td>
-<td>
-<form action="/friends/{{ friendship.id }}/accept" method="post" style="display:inline;">
-<button type="submit">수락</button>
-</form>
-<form action="/friends/{{ friendship.id }}/reject" method="post" style="display:inline;">
-<button type="submit">거절</button>
-</form>
-</td>
-</tr>
-{% endfor %}
-</table>
-{% else %}
-<p>받은 친구 요청이 없습니다.</p>
-{% endif %}
-</section>
-
-<section>
-<h3>보낸 친구 요청</h3>
-{% if sent_requests %}
-<ul>
-{% for friendship in sent_requests %}
-<li>{{ friendship.addressee.username }}님에게 요청 대기 중</li>
-{% endfor %}
-</ul>
-{% else %}
-<p>보낸 친구 요청이 없습니다.</p>
-{% endif %}
-</section>
-
-<section>
-<h3>친구 목록</h3>
-{% if friends %}
-<ul>
-{% for friend in friends %}
-<li>{{ friend.username }}</li>
-{% endfor %}
-</ul>
-{% else %}
-<p>아직 친구가 없습니다.</p>
-{% endif %}
-</section>
-
+    <section class="friends-section">
+        <h3>친구 목록 및 버디 통계</h3>
+        {% if friend_statistics %}
+        <div class="friend-grid">
+            {% for item in friend_statistics %}
+            <article class="friend-card">
+                <h4>{{ item.user.nickname or item.user.username }}</h4>
+                {% if item.user.nickname and item.user.nickname != item.user.username %}
+                <div class="friend-id">{{ item.user.username }}</div>
+                {% endif %}
+                <div class="stats-grid">
+                    <div class="stat"><strong>{{ item.dive_count }}</strong><span>함께 다이빙</span></div>
+                    <div class="stat"><strong>{{ item.point_count }}</strong><span>함께 방문한 포인트</span></div>
+                    <div class="stat"><strong>{{ item.trip_count }}</strong><span>함께한 투어</span></div>
+                </div>
+                <div>
+                    <strong>함께 방문한 포인트</strong>
+                    {% if item.point_names %}
+                    <ul class="detail-list">
+                        {% for point_name in item.point_names %}<li>{{ point_name }}</li>{% endfor %}
+                    </ul>
+                    {% else %}<p class="empty">기록 없음</p>{% endif %}
+                </div>
+                <div>
+                    <strong>함께한 투어</strong>
+                    {% if item.trips %}
+                    <ul class="detail-list">
+                        {% for trip in item.trips %}<li><a href="/trips/{{ trip.id }}">{{ trip.name }}</a></li>{% endfor %}
+                    </ul>
+                    {% else %}<p class="empty">기록 없음</p>{% endif %}
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="empty">아직 친구가 없습니다.</p>
+        {% endif %}
+    </section>
+</div>
 {% endblock %}
