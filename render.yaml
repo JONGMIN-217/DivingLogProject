@@ -1,0 +1,49 @@
+services:
+  - type: web
+    name: diving-log
+    runtime: python
+    region: singapore
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    preDeployCommand: alembic upgrade head
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips="*"
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+    numInstances: 1
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: diving-log-postgres
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: UPLOAD_DIR
+        value: /opt/render/project/src/uploads
+      - key: TRUSTED_HOSTS
+        value: "*.onrender.com"
+      - key: SESSION_HTTPS_ONLY
+        value: "true"
+      - key: FORCE_HTTPS
+        value: "false"
+      - key: ALLOW_REGISTRATION
+        value: "false"
+      - key: RUN_STARTUP_MAINTENANCE
+        value: "false"
+      - key: BOOTSTRAP_ADMIN_USERNAME
+        sync: false
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
+    disk:
+      name: diving-log-uploads
+      mountPath: /opt/render/project/src/uploads
+      sizeGB: 1
+
+databases:
+  - name: diving-log-postgres
+    databaseName: divinglog
+    user: divinglog
+    region: singapore
+    plan: basic-256mb
+    ipAllowList: []

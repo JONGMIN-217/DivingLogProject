@@ -1880,13 +1880,14 @@ def ensure_initial_admin():
         db.close()
 
 
-Base.metadata.create_all(bind=engine)
-if engine.dialect.name == "sqlite":
-    ensure_dive_log_time_columns()
-    ensure_user_columns()
-    ensure_region_country_columns()
-    ensure_dive_point_columns()
-    ensure_marine_weather_columns()
+if not settings.is_production:
+    Base.metadata.create_all(bind=engine)
+    if engine.dialect.name == "sqlite":
+        ensure_dive_log_time_columns()
+        ensure_user_columns()
+        ensure_region_country_columns()
+        ensure_dive_point_columns()
+        ensure_marine_weather_columns()
 ensure_default_country()
 ensure_initial_admin()
 if settings.run_startup_maintenance:

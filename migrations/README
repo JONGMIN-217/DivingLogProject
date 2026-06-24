@@ -1,0 +1,9 @@
+Alembic database migrations.
+
+Create a migration after changing SQLAlchemy models:
+
+    alembic revision --autogenerate -m "Describe schema change"
+
+Apply pending migrations:
+
+    alembic upgrade head
