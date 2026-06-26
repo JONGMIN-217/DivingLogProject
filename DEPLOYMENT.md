@@ -222,8 +222,8 @@ docker compose up --build
 curl http://127.0.0.1:8000/healthz
 ```
 
-`docker-compose.yml`은 운영과 유사한 구조를 확인하기 위한 예시다. 공개 서비스에 그대로 쓰기 전에
-`SECRET_KEY`, `BOOTSTRAP_ADMIN_PASSWORD`, DB 비밀번호를 반드시 교체한다.
+`docker-compose.yml`은 운영과 유사한 구조를 확인하기 위한 예시다. 실행 전에 `.env` 또는 셸 환경변수로
+`POSTGRES_PASSWORD`, `SECRET_KEY`, `BOOTSTRAP_ADMIN_PASSWORD`를 반드시 설정한다.
 
 ## 운영 로그
 

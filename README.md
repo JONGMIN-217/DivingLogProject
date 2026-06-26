@@ -60,7 +60,7 @@ docker compose up --build
 curl http://127.0.0.1:8000/healthz
 ```
 
-실제 공개 전에 `docker-compose.yml`의 `SECRET_KEY`와 초기 관리자 비밀번호를 반드시 변경하세요.
+실행 전에 `.env`에 `POSTGRES_PASSWORD`, `SECRET_KEY`, `BOOTSTRAP_ADMIN_PASSWORD`를 설정하세요.
 
 ## 배포
 

@@ -7,7 +7,12 @@ __pycache__/
 .coverage
 htmlcov/
 *.log
+logs/
 uploads/*
 !uploads/.gitkeep
 divinglog.db
 divinglog.db-*
+*.sqlite
+*.sqlite3
+*.db
+!*.db.example

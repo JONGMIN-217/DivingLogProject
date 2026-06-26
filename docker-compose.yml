@@ -2,9 +2,9 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: divinglog
-      POSTGRES_USER: divinglog
-      POSTGRES_PASSWORD: divinglog_password
+      POSTGRES_DB: ${POSTGRES_DB:-divinglog}
+      POSTGRES_USER: ${POSTGRES_USER:-divinglog}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 환경변수를 설정하세요}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -20,8 +20,8 @@ services:
         condition: service_healthy
     environment:
       APP_ENV: production
-      DATABASE_URL: postgresql+psycopg://divinglog:divinglog_password@db:5432/divinglog
-      SECRET_KEY: change-this-to-a-long-random-secret-before-use
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL 환경변수를 설정하세요}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY 환경변수를 설정하세요}
       UPLOAD_DIR: /data/uploads
       UPLOAD_STORAGE_BACKEND: local
       LOG_DIR: /data/logs
@@ -31,8 +31,8 @@ services:
       FORCE_HTTPS: "false"
       ALLOW_REGISTRATION: "true"
       RUN_STARTUP_MAINTENANCE: "false"
-      BOOTSTRAP_ADMIN_USERNAME: admin
-      BOOTSTRAP_ADMIN_PASSWORD: change-this-admin-password
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?BOOTSTRAP_ADMIN_PASSWORD 환경변수를 설정하세요}
     volumes:
       - upload-data:/data/uploads
       - app-logs:/data/logs
