@@ -27,6 +27,8 @@ Railway 프로젝트가 있다면 `railway.json`을 사용하고 아래 수동 �
 - 데이터베이스: PostgreSQL
 - 스키마 변경: Alembic
 - 마이그레이션 명령: `alembic upgrade head`
+- 기본 Start Command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+- 권장 Start Command: `uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips="*"`
 - 앱 실행: Uvicorn 단일 프로세스
 - 상태 점검: `GET /healthz`
 - 업로드: 영구 디스크 또는 영구 볼륨의 `UPLOAD_DIR`
@@ -43,6 +45,13 @@ Railway 프로젝트가 있다면 `railway.json`을 사용하고 아래 수동 �
 - `diving-log`: Singapore 리전의 Python 웹 서비스
 - `diving-log-postgres`: 외부 접근을 차단한 PostgreSQL
 - `diving-log-uploads`: `/opt/render/project/src/uploads`에 연결되는 1GB 영구 디스크
+
+Render에서 Blueprint를 쓰지 않고 수동으로 만들 경우:
+
+- Build Command: `pip install -r requirements.txt`
+- Pre Deploy Command: `alembic upgrade head`
+- Start Command: `uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips="*"`
+- Health Check Path: `/healthz`
 
 ### 배포 순서
 
@@ -67,6 +76,13 @@ Render 영구 디스크가 연결된 서비스는 단일 인스턴스로만 운�
 
 `railway.json`은 Dockerfile 빌드, Alembic 사전 배포, 앱 시작, 상태 점검을 설정한다.
 PostgreSQL과 볼륨은 Railway 프로젝트 화면에서 추가해야 한다.
+
+Railway에서 설정을 수동 입력하는 경우:
+
+- Builder: Dockerfile
+- Pre Deploy Command: `alembic upgrade head`
+- Start Command: `uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'`
+- Health Check Path: `/healthz`
 
 ### 배포 순서
 

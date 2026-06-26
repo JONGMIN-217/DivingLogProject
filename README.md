@@ -67,6 +67,74 @@ curl http://127.0.0.1:8000/healthz
 Render와 Railway 설정은 저장소의 `render.yaml`, `railway.json`, `Dockerfile`을 기준으로 준비되어 있습니다.
 자세한 절차는 [DEPLOYMENT.md](DEPLOYMENT.md)를 확인하세요.
 
+### Start Command
+
+플랫폼에서 직접 시작 명령을 입력해야 하는 경우 다음 값을 사용합니다.
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port $PORT
+```
+
+프록시 뒤에서 실행하는 Render/Railway 환경에서는 저장소의 `Procfile`, `render.yaml`,
+`railway.json`처럼 다음 옵션을 함께 사용하는 구성을 권장합니다.
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips="*"
+```
+
+### Render 배포
+
+1. 저장소를 GitHub 또는 GitLab에 push합니다.
+2. Render에서 **New > Blueprint**를 선택하고 저장소의 `render.yaml`을 적용합니다.
+3. Blueprint 입력 단계에서 `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_PASSWORD`를 설정합니다.
+4. Render가 PostgreSQL, 웹 서비스, 업로드 디스크를 생성합니다.
+5. 배포 전 `alembic upgrade head`가 실행되고, 성공하면 앱이 시작됩니다.
+6. `/healthz`가 `200`을 반환하는지 확인합니다.
+7. 첫 관리자 로그인 후 `BOOTSTRAP_ADMIN_*` 환경변수를 제거합니다.
+
+### Railway 배포
+
+1. Railway에서 GitHub 저장소를 연결합니다.
+2. PostgreSQL 서비스를 추가합니다.
+3. 앱 서비스에 Volume을 추가하고 mount path를 `/data/uploads`로 지정합니다.
+4. 앱 서비스 환경변수에 `DATABASE_URL`, `SECRET_KEY`, `UPLOAD_DIR`, `TRUSTED_HOSTS` 등을 설정합니다.
+5. `railway.json`의 `preDeployCommand`가 `alembic upgrade head`를 실행합니다.
+6. 배포 후 `/healthz`와 관리자 로그인을 확인합니다.
+
+### 운영 환경변수
+
+필수 또는 권장 환경변수는 다음과 같습니다.
+
+- `APP_ENV=production`
+- `DATABASE_URL`: PostgreSQL 연결 URL
+- `SECRET_KEY`: 32자 이상의 고정 난수
+- `UPLOAD_DIR`: Render 디스크 또는 Railway Volume 경로
+- `UPLOAD_STORAGE_BACKEND=local`
+- `LOG_DIR`: 운영 로그 저장 경로
+- `LOG_LEVEL=INFO`
+- `TRUSTED_HOSTS`: 실제 서비스 도메인
+- `SESSION_HTTPS_ONLY=true`
+- `ALLOW_REGISTRATION=false`
+- `RUN_STARTUP_MAINTENANCE=false`
+- `BOOTSTRAP_ADMIN_USERNAME`: 최초 관리자 생성 시에만 사용
+- `BOOTSTRAP_ADMIN_PASSWORD`: 최초 관리자 생성 시에만 사용
+- `KHOA_SERVICE_KEY`: KHOA API를 사용할 때 설정
+
+### 초기 DB 생성 및 마이그레이션
+
+배포 환경에서는 앱 시작 전에 다음 명령을 실행해야 합니다.
+
+```bash
+alembic upgrade head
+```
+
+Render와 Railway 설정 파일에는 이 명령이 배포 전 단계로 포함되어 있습니다. 새 모델 변경을 배포하기 전에는 로컬에서 다음을 확인합니다.
+
+```bash
+alembic upgrade head
+alembic check
+```
+
 ## 보안 및 운영
 
 - 비밀번호는 PBKDF2 해시로 저장합니다.
