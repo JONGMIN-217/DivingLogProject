@@ -147,6 +147,9 @@ class CsrfOriginMiddleware(BaseHTTPMiddleware):
             if not origin and referer and not referer.startswith(f"{expected_origin}/"):
                 return PlainTextResponse("잘못된 요청입니다.", status_code=403)
 
+            if settings.is_production and not origin and not referer:
+                return PlainTextResponse("잘못된 요청입니다.", status_code=403)
+
         return await call_next(request)
 
 
@@ -189,6 +192,18 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+            "style-src 'self' 'unsafe-inline' https://unpkg.com; "
+            "img-src 'self' data: https:; "
+            "connect-src 'self'; "
+            "font-src 'self'; "
+            "object-src 'none'; "
+            "base-uri 'self'; "
+            "frame-ancestors 'none'",
+        )
         response.headers.setdefault(
             "Permissions-Policy",
             "camera=(), microphone=(), geolocation=(self)",
