@@ -78,7 +78,7 @@ from app.services.backup_service import (
 from app.services.admin_dashboard_service import build_admin_dashboard, record_import_run
 from app.services.logging_config import configure_logging
 from app.services.point_api_test_service import run_point_api_tests
-from app.services.upload_storage import LocalUploadStorage, format_file_size
+from app.services.upload_storage import LocalUploadStorage, UploadPathManager, format_file_size
 
 from fastapi import UploadFile, File
 import uuid
@@ -99,15 +99,13 @@ app = FastAPI()
 app.state.settings = settings
 
 UPLOAD_DIR = settings.upload_dir
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-IMPORT_UPLOAD_DIR = UPLOAD_DIR / "imports"
-IMPORT_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-TRIP_UPLOAD_DIR = UPLOAD_DIR / "trips"
-TRIP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-ALBUM_UPLOAD_DIR = UPLOAD_DIR / "albums"
-ALBUM_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-BACKUP_UPLOAD_DIR = UPLOAD_DIR / "backups"
-BACKUP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+upload_paths = UploadPathManager(UPLOAD_DIR)
+upload_paths.ensure_directories()
+IMPORT_UPLOAD_DIR = upload_paths.imports_dir
+LOG_PHOTO_UPLOAD_DIR = upload_paths.log_photos_dir
+TRIP_UPLOAD_DIR = upload_paths.trip_photos_dir
+ALBUM_UPLOAD_DIR = upload_paths.album_photos_dir
+BACKUP_UPLOAD_DIR = upload_paths.backups_dir
 
 ALLOWED_IMAGE_EXTENSIONS = {
     ".jpg": "image/jpeg",
@@ -116,7 +114,7 @@ ALLOWED_IMAGE_EXTENSIONS = {
     ".gif": "image/gif",
     ".webp": "image/webp",
 }
-ALLOWED_IMPORT_EXTENSIONS = {".csv", ".xml", ".uddf", ".db"}
+ALLOWED_IMPORT_EXTENSIONS = {".csv", ".xml", ".uddf", ".db", ".sqlite", ".sqlite3"}
 MAX_IMAGE_UPLOAD_SIZE = settings.max_image_upload_size_mb * 1024 * 1024
 MAX_IMPORT_UPLOAD_SIZE = settings.max_import_file_size_mb * 1024 * 1024
 MAX_BACKUP_UPLOAD_SIZE = settings.max_backup_upload_size_mb * 1024 * 1024
@@ -2835,7 +2833,7 @@ async def upload_shared_album_photos(
             if upload_error:
                 raise ValueError(f"{Path(photo.filename).name}: {upload_error}")
 
-            filename = f"{uuid.uuid4().hex}{suffix}"
+            filename = upload_storage.uuid_filename(suffix)
             file_location = ALBUM_UPLOAD_DIR / filename
             upload_error = save_upload_file(photo, file_location, MAX_IMAGE_UPLOAD_SIZE)
             if upload_error:
@@ -2845,7 +2843,7 @@ async def upload_shared_album_photos(
                 SharedAlbumPhoto(
                     album_id=album.id,
                     uploader_id=current_user.id,
-                    image_path=f"uploads/albums/{filename}",
+                    image_path=upload_paths.upload_reference(file_location),
                     original_filename=Path(photo.filename).name,
                     caption=caption.strip() or None,
                     is_cover=not has_cover and index == 0,
@@ -3154,7 +3152,7 @@ async def upload_trip_photo(
         if upload_error:
             return RedirectResponse(url=f"/trips/{trip_id}?error={upload_error}", status_code=303)
 
-        filename = f"{uuid.uuid4().hex}{suffix}"
+        filename = upload_storage.uuid_filename(suffix)
         file_location = TRIP_UPLOAD_DIR / filename
 
         upload_error = save_upload_file(photo, file_location, MAX_IMAGE_UPLOAD_SIZE)
@@ -3164,7 +3162,7 @@ async def upload_trip_photo(
         trip_photo = TripPhoto(
             trip_id=trip_id,
             uploader_id=current_user.id,
-            image_path=f"uploads/trips/{filename}",
+            image_path=upload_paths.upload_reference(file_location),
             caption=caption.strip() or None,
         )
         db.add(trip_photo)
@@ -3944,7 +3942,7 @@ async def import_admin_divepoints(request: Request, csv_file: UploadFile = File(
         if upload_error:
             return RedirectResponse(url=admin_divepoints_url(error=upload_error), status_code=303)
 
-        saved_filename = f"divepoints_{uuid.uuid4().hex}{suffix}"
+        saved_filename = f"divepoints_{upload_storage.uuid_filename(suffix)}"
         saved_path = IMPORT_UPLOAD_DIR / saved_filename
         upload_error = save_upload_file(csv_file, saved_path, MAX_IMPORT_UPLOAD_SIZE)
         if upload_error:
@@ -4138,7 +4136,7 @@ async def import_preview(request: Request, import_file: UploadFile = File(...)):
             status_code=400
         )
 
-    saved_filename = f"{uuid.uuid4().hex}{suffix}"
+    saved_filename = upload_storage.uuid_filename(suffix)
     saved_path = IMPORT_UPLOAD_DIR / saved_filename
 
     upload_error = save_upload_file(import_file, saved_path, MAX_IMPORT_UPLOAD_SIZE)
@@ -4495,14 +4493,14 @@ async def add_log(
             if upload_error:
                 return RedirectResponse(url=f"/log/add?error={upload_error}", status_code=303)
 
-            filename = f"{uuid.uuid4().hex}{suffix}"
-            file_location = UPLOAD_DIR / filename
+            filename = upload_storage.uuid_filename(suffix)
+            file_location = LOG_PHOTO_UPLOAD_DIR / filename
 
             upload_error = save_upload_file(image, file_location, MAX_IMAGE_UPLOAD_SIZE)
             if upload_error:
                 return RedirectResponse(url=f"/log/add?error={upload_error}", status_code=303)
 
-            file_path = f"uploads/{filename}"
+            file_path = upload_paths.upload_reference(file_location)
 
         selected_buddy_user_id, buddy_text = resolve_buddy_selection(
             db,

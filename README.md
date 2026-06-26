@@ -71,6 +71,7 @@ Render와 Railway 설정은 저장소의 `render.yaml`, `railway.json`, `Dockerf
 
 - 비밀번호는 PBKDF2 해시로 저장합니다.
 - 업로드 파일은 확장자, MIME, 이미지 시그니처, 최대 용량을 검사합니다.
+- 업로드 파일은 `UPLOAD_DIR` 아래 `photos/logs`, `photos/trips`, `photos/albums`, `imports`, `backups`로 분리 저장합니다.
 - 업로드 파일은 `/uploads/...` 보호 라우트를 통해 권한 확인 후 제공합니다.
 - POST/PUT/PATCH/DELETE 요청은 Origin/Referer 기반 CSRF 방어를 적용합니다.
 - 서버 로그, 오류 로그, Import 로그, API 로그를 분리해 저장합니다.

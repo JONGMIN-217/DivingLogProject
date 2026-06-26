@@ -1,6 +1,7 @@
 import hashlib
 from pathlib import Path
 from typing import Iterable
+import uuid
 
 from fastapi import UploadFile
 
@@ -89,9 +90,38 @@ class LocalUploadStorage:
         return digest.hexdigest()
 
     @staticmethod
+    def uuid_filename(suffix: str):
+        return f"{uuid.uuid4().hex}{suffix.lower()}"
+
+    @staticmethod
     def _chunks(upload_file: UploadFile) -> Iterable[bytes]:
         while True:
             chunk = upload_file.file.read(1024 * 1024)
             if not chunk:
                 break
             yield chunk
+
+
+class UploadPathManager:
+    def __init__(self, upload_root: Path):
+        self.root = upload_root.resolve()
+        self.imports_dir = self.root / "imports"
+        self.backups_dir = self.root / "backups"
+        self.log_photos_dir = self.root / "photos" / "logs"
+        self.trip_photos_dir = self.root / "photos" / "trips"
+        self.album_photos_dir = self.root / "photos" / "albums"
+
+    def ensure_directories(self):
+        for directory in (
+            self.root,
+            self.imports_dir,
+            self.backups_dir,
+            self.log_photos_dir,
+            self.trip_photos_dir,
+            self.album_photos_dir,
+        ):
+            directory.mkdir(parents=True, exist_ok=True)
+
+    def upload_reference(self, path: Path):
+        relative = path.resolve().relative_to(self.root)
+        return f"uploads/{relative.as_posix()}"

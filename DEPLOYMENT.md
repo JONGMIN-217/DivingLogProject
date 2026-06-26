@@ -186,7 +186,12 @@ SQLite 전용 연결 옵션을 넘기지 않는다. 두 DB 모두 `pool_pre_ping
 
 - Render: `/opt/render/project/src/uploads`
 - Railway: `/data/uploads`
-- 사진과 Import 원본, 복구 임시 파일이 같은 `UPLOAD_DIR` 아래에 저장된다.
+- 사진, Import 원본, 복구 임시 파일은 같은 `UPLOAD_DIR` 아래에서 용도별 하위 디렉터리로 저장된다.
+- 직접 로그 사진: `photos/logs`
+- 투어 사진: `photos/trips`
+- 공유 사진첩 사진: `photos/albums`
+- Import 원본 및 미리보기 배치: `imports`
+- 백업 복구 임시 파일: `backups`
 - 업로드 파일은 정적 공개하지 않고 로그인 및 소유자/참여자 권한을 확인해 제공한다.
 - 플랫폼 볼륨 스냅샷 외에 앱의 사진 포함 ZIP 백업을 정기적으로 보관한다.
 - 다중 인스턴스, CDN, 대용량 사진이 필요해지면 S3 호환 저장소로 이전한다.
