@@ -146,6 +146,30 @@ alembic check
 운영 모드에서는 앱이 `Base.metadata.create_all()`이나 SQLite용 임시 스키마 수정을 실행하지
 않는다. Alembic 마이그레이션 실패 시 새 앱 버전은 시작되지 않는다.
 
+## 데이터베이스 호환성
+
+앱은 `DATABASE_URL` 환경변수 하나를 기준으로 SQLAlchemy 연결을 만든다.
+
+- 로컬 기본값: `sqlite:///./divinglog.db`
+- 운영 권장값: `postgresql+psycopg://user:password@host:5432/database`
+- Render/Railway가 `postgres://` 또는 `postgresql://` 형식의 URL을 제공해도 앱 시작 시
+  `postgresql+psycopg://` 형식으로 정규화한다.
+
+SQLite에서는 `check_same_thread=false`와 짧은 timeout을 적용하고, PostgreSQL에서는 별도
+SQLite 전용 연결 옵션을 넘기지 않는다. 두 DB 모두 `pool_pre_ping=true`로 오래된 커넥션을
+사용하기 전에 확인한다.
+
+모델 타입은 PostgreSQL 호환 범용 SQLAlchemy 타입만 사용한다.
+
+- 날짜: `Date`
+- 시간: `Time`
+- 수치: `Integer`, `Float`
+- 긴 텍스트와 직렬화 데이터: `Text`
+- 생성일: `DateTime`
+
+현재 DB JSON 컬럼은 사용하지 않는다. Import 원본/프로파일 보조 데이터처럼 구조가 유동적인 값은
+문자열 JSON으로 직렬화해 `Text` 컬럼에 저장하므로 SQLite와 PostgreSQL에서 같은 방식으로 동작한다.
+
 ### 기존 SQLite 데이터 이전
 
 1. 기존 앱에서 사진 포함 관리자 전체 ZIP 백업을 생성한다.
