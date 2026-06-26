@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Integer, String, ForeignKey, Float, Date, Time, Text, DateTime
+from sqlalchemy import Boolean, Column, Integer, String, ForeignKey, Float, Date, Time, Text, DateTime, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -43,6 +43,7 @@ class DivePoint(Base):
     longitude = Column(Float, nullable=True)
     point_type = Column(String, nullable=False, default="OCEAN")
     memo = Column(String, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     area = relationship("Area", backref="dive_points")
 
@@ -213,6 +214,24 @@ class MarineWeather(Base):
 
 class DiveLog(Base):
     __tablename__ = "dive_logs"
+    __table_args__ = (
+        Index(
+            "ix_dive_logs_user_date_time",
+            "user_id",
+            "dive_date",
+            "entry_time",
+            "dive_time",
+            "exit_time",
+            "id",
+        ),
+        Index("ix_dive_logs_point_date", "dive_point_id", "dive_date"),
+        Index(
+            "ix_dive_logs_import_identity",
+            "import_source",
+            "import_source_file_hash",
+            "import_external_id",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     dive_number = Column(Integer, nullable=True, index=True)
@@ -265,3 +284,23 @@ class DiveProfileSample(Base):
     source = Column(String, nullable=True)
 
     dive_log = relationship("DiveLog", back_populates="profile_samples_rel")
+
+
+class ImportRun(Base):
+    __tablename__ = "import_runs"
+    __table_args__ = (
+        Index("ix_import_runs_user_created", "user_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    parser_name = Column(String, nullable=True)
+    original_filename = Column(String, nullable=True)
+    total_count = Column(Integer, nullable=False, default=0)
+    selected_count = Column(Integer, nullable=False, default=0)
+    saved_count = Column(Integer, nullable=False, default=0)
+    duplicate_count = Column(Integer, nullable=False, default=0)
+    failed_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    user = relationship("User")

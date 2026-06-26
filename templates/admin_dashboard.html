@@ -2,137 +2,167 @@
 
 {% block head %}
 <style>
-.admin-page{
-    max-width:1100px;
-}
-
-.admin-header{
-    margin-bottom:18px;
-}
-
-.admin-badge-large{
-    display:inline-block;
-    margin-left:8px;
-    padding:4px 8px;
-    border-radius:999px;
-    background:#b45309;
-    color:#ffffff;
-    font-size:12px;
-}
-
-.admin-summary{
-    display:grid;
-    grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));
-    gap:12px;
-    margin-bottom:20px;
-}
-
-.admin-summary-card,
-.admin-menu-card{
-    border:1px solid #e2e8f0;
-    border-radius:8px;
-    padding:14px;
-    background:#ffffff;
-}
-
-.admin-summary-label{
-    color:#64748b;
-    font-size:13px;
-}
-
-.admin-summary-value{
-    margin-top:8px;
-    font-size:24px;
-    font-weight:bold;
-}
-
-.admin-menu-grid{
-    display:grid;
-    grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));
-    gap:12px;
-}
-
-.admin-menu-card{
-    display:block;
-    color:#111827;
-    text-decoration:none;
-}
-
-.admin-menu-card strong{
-    display:block;
-    margin-bottom:6px;
-}
-
-.admin-menu-card span{
-    color:#64748b;
-    font-size:14px;
-}
+.ops-dashboard{max-width:1280px}
+.ops-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px}
+.ops-header h1{margin:0 0 6px;font-size:28px}
+.ops-header p{margin:0;color:#64748b}
+.ops-badge{padding:5px 8px;border-radius:5px;background:#9a3412;color:#fff;font-size:12px;font-weight:700}
+.ops-summary{display:grid;grid-template-columns:repeat(5,minmax(150px,1fr));gap:12px}
+.ops-card{padding:16px;border:1px solid #dbe3ea;border-radius:8px;background:#fff}
+.ops-label{color:#64748b;font-size:13px}
+.ops-value{margin-top:8px;font-size:26px;font-weight:800;color:#172033}
+.ops-note{margin-top:5px;color:#64748b;font-size:12px}
+.ops-charts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:20px}
+.ops-chart-card{padding:16px;border:1px solid #dbe3ea;border-radius:8px;background:#fff}
+.ops-chart-card h2{margin:0;font-size:16px}
+.ops-chart{height:220px;margin-top:12px}
+.ops-chart svg{display:block;width:100%;height:100%}
+.ops-chart-empty{height:100%;display:grid;place-items:center;color:#64748b}
+.ops-lower{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(280px,.65fr);gap:16px;margin-top:20px}
+.ops-section{padding:16px;border:1px solid #dbe3ea;border-radius:8px;background:#fff}
+.ops-section-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.ops-section-header h2{margin:0;font-size:18px}
+.ops-table-wrap{overflow-x:auto}
+.ops-table{width:100%;border-collapse:collapse}
+.ops-table th,.ops-table td{padding:10px 8px;border-bottom:1px solid #edf1f5;text-align:left;font-size:13px}
+.ops-table th{color:#64748b;font-weight:700}
+.ops-empty{padding:24px 12px;color:#64748b;text-align:center}
+.ops-menu{display:grid;gap:8px}
+.ops-menu a{display:flex;justify-content:space-between;gap:12px;padding:11px;border:1px solid #e2e8f0;border-radius:6px;color:#172033;text-decoration:none}
+.ops-menu a span{color:#64748b}
+@media(max-width:1050px){.ops-summary{grid-template-columns:repeat(3,minmax(150px,1fr))}.ops-charts{grid-template-columns:1fr}.ops-lower{grid-template-columns:1fr}}
+@media(max-width:620px){.ops-header{flex-direction:column}.ops-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.ops-value{font-size:22px}}
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="admin-page">
-    <div class="admin-header">
-        <h2>관리자 대시보드 <span class="admin-badge-large">관리자</span></h2>
-        <p>시스템 관리 기능과 주요 상태를 확인합니다.</p>
-    </div>
+<div class="ops-dashboard">
+    <header class="ops-header">
+        <div>
+            <h1>운영 대시보드</h1>
+            <p>서비스의 주요 지표와 최근 활동을 확인합니다.</p>
+        </div>
+        <span class="ops-badge">관리자 전용</span>
+    </header>
 
-    <div class="admin-summary">
-        <div class="admin-summary-card">
-            <div class="admin-summary-label">전체 사용자</div>
-            <div class="admin-summary-value">{{ stats.user_count }}명</div>
-        </div>
-        <div class="admin-summary-card">
-            <div class="admin-summary-label">관리자</div>
-            <div class="admin-summary-value">{{ stats.admin_count }}명</div>
-        </div>
-        <div class="admin-summary-card">
-            <div class="admin-summary-label">전체 로그</div>
-            <div class="admin-summary-value">{{ stats.log_count }}개</div>
-        </div>
-        <div class="admin-summary-card">
-            <div class="admin-summary-label">다이빙 포인트</div>
-            <div class="admin-summary-value">{{ stats.point_count }}개</div>
-        </div>
-        <div class="admin-summary-card">
-            <div class="admin-summary-label">Import 파일</div>
-            <div class="admin-summary-value">{{ stats.import_file_count }}개</div>
-        </div>
-    </div>
+    <section class="ops-summary" aria-label="운영 요약">
+        <article class="ops-card">
+            <div class="ops-label">총 사용자 수</div>
+            <div class="ops-value">{{ stats.user_count }}명</div>
+        </article>
+        <article class="ops-card">
+            <div class="ops-label">총 로그 수</div>
+            <div class="ops-value">{{ stats.log_count }}개</div>
+        </article>
+        <article class="ops-card">
+            <div class="ops-label">총 포인트 수</div>
+            <div class="ops-value">{{ stats.point_count }}개</div>
+        </article>
+        <article class="ops-card">
+            <div class="ops-label">Import 성공률</div>
+            <div class="ops-value">
+                {% if stats.import_success_rate is not none %}{{ "%.1f"|format(stats.import_success_rate) }}%{% else %}-{% endif %}
+            </div>
+            <div class="ops-note">
+                {% if stats.import_attempt_count %}저장 시도 {{ stats.import_attempt_count }}건 기준{% else %}집계 기록 없음{% endif %}
+            </div>
+        </article>
+        <article class="ops-card">
+            <div class="ops-label">유령 로그 수</div>
+            <div class="ops-value">{{ stats.ghost_log_count }}개</div>
+            <div class="ops-note">다이브타임 없음 또는 0분 이하</div>
+        </article>
+    </section>
 
-    <div class="admin-menu-grid">
-        <a class="admin-menu-card" href="/admin/divepoints">
-            <strong>포인트 관리</strong>
-            <span>다이빙 포인트를 추가하고 CSV로 가져옵니다.</span>
-        </a>
-        <a class="admin-menu-card" href="/admin/points/quality">
-            <strong>포인트 품질 관리</strong>
-            <span>GPS 없는 포인트와 가까운 포인트를 검토하고 병합합니다.</span>
-        </a>
-        <a class="admin-menu-card" href="/admin/points/candidates">
-            <strong>포인트 후보 검토</strong>
-            <span>GPS 100m 이내 로그 그룹으로 포인트를 한 번에 생성합니다.</span>
-        </a>
-        <a class="admin-menu-card" href="/admin/points/from-logs">
-            <strong>로그 기반 포인트 등록</strong>
-            <span>GPS가 있는 로그를 선택해 새 포인트를 생성합니다.</span>
-        </a>
-        <a class="admin-menu-card" href="/admin/users">
-            <strong>사용자 관리</strong>
-            <span>사용자 권한과 계정을 관리합니다.</span>
-        </a>
-        <a class="admin-menu-card" href="/admin/import">
-            <strong>Import 관리</strong>
-            <span>업로드된 Import 파일과 관련 관리 기능을 확인합니다.</span>
-        </a>
-        <a class="admin-menu-card" href="/account/backup">
-            <strong>백업/복구</strong>
-            <span>전체 데이터 백업을 만들고 복구 미리보기를 확인합니다.</span>
-        </a>
-        <a class="admin-menu-card" href="/admin/recalculate-dive-numbers">
-            <strong>다이빙 번호 재정렬</strong>
-            <span>날짜와 입수시각 기준으로 다이빙 번호를 다시 부여합니다.</span>
-        </a>
+    <section class="ops-charts">
+        <article class="ops-chart-card">
+            <h2>월별 로그 수</h2>
+            <div class="ops-chart" data-chart-values='{{ charts.log_counts|tojson }}' data-chart-labels='{{ charts.labels|tojson }}' data-chart-color="#0f766e"></div>
+        </article>
+        <article class="ops-chart-card">
+            <h2>사용자 증가</h2>
+            <div class="ops-chart" data-chart-values='{{ charts.user_counts|tojson }}' data-chart-labels='{{ charts.labels|tojson }}' data-chart-color="#2563eb"></div>
+        </article>
+        <article class="ops-chart-card">
+            <h2>포인트 증가</h2>
+            <div class="ops-chart" data-chart-values='{{ charts.point_counts|tojson }}' data-chart-labels='{{ charts.labels|tojson }}' data-chart-color="#b45309"></div>
+        </article>
+    </section>
+
+    <div class="ops-lower">
+        <section class="ops-section">
+            <div class="ops-section-header">
+                <h2>최근 업로드</h2>
+                <span>{{ recent_uploads|length }}건</span>
+            </div>
+            {% if recent_uploads %}
+            <div class="ops-table-wrap">
+                <table class="ops-table">
+                    <thead><tr><th>파일</th><th>유형</th><th>크기</th><th>업로드 시각</th></tr></thead>
+                    <tbody>
+                    {% for upload in recent_uploads %}
+                    <tr>
+                        <td>{{ upload.name }}</td>
+                        <td>{{ upload.category }}</td>
+                        <td>{{ upload.size }}</td>
+                        <td>{{ upload.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="ops-empty">최근 업로드가 없습니다.</div>
+            {% endif %}
+        </section>
+
+        <section class="ops-section">
+            <div class="ops-section-header"><h2>관리 바로가기</h2></div>
+            <nav class="ops-menu">
+                <a href="/admin/users"><strong>사용자 관리</strong><span>이동</span></a>
+                <a href="/admin/import"><strong>Import 관리</strong><span>이동</span></a>
+                <a href="/admin/divepoints"><strong>포인트 관리</strong><span>이동</span></a>
+                <a href="/logs/review-needed"><strong>검토 필요 로그</strong><span>이동</span></a>
+                <a href="/account/backup"><strong>백업/복구</strong><span>이동</span></a>
+                <a href="/admin/recalculate-dive-numbers"><strong>다이빙 번호 재정렬</strong><span>이동</span></a>
+            </nav>
+        </section>
     </div>
 </div>
+
+<script>
+document.querySelectorAll("[data-chart-values]").forEach((node) => {
+    const values = JSON.parse(node.dataset.chartValues || "[]").map(Number);
+    const labels = JSON.parse(node.dataset.chartLabels || "[]");
+    if (!values.length || values.every((value) => value === 0)) {
+        node.innerHTML = '<div class="ops-chart-empty">표시할 데이터가 없습니다.</div>';
+        return;
+    }
+
+    const width = 520;
+    const height = 220;
+    const margin = {top: 18, right: 12, bottom: 34, left: 34};
+    const plotWidth = width - margin.left - margin.right;
+    const plotHeight = height - margin.top - margin.bottom;
+    const maxValue = Math.max(...values, 1);
+    const step = values.length > 1 ? plotWidth / (values.length - 1) : plotWidth;
+    const x = (index) => margin.left + (values.length > 1 ? index * step : plotWidth / 2);
+    const y = (value) => margin.top + plotHeight - (value / maxValue) * plotHeight;
+    const points = values.map((value, index) => `${x(index)},${y(value)}`).join(" ");
+    const labelIndexes = [...new Set([0, Math.floor((labels.length - 1) / 2), labels.length - 1])];
+    const color = node.dataset.chartColor || "#0f766e";
+
+    node.innerHTML = `
+        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="최근 12개월 운영 통계">
+            <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${height - margin.bottom}" stroke="#cbd5e1"/>
+            <line x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}" stroke="#cbd5e1"/>
+            <line x1="${margin.left}" y1="${y(maxValue / 2)}" x2="${width - margin.right}" y2="${y(maxValue / 2)}" stroke="#edf1f5"/>
+            <text x="2" y="${margin.top + 4}" fill="#64748b" font-size="11">${maxValue}</text>
+            <text x="18" y="${height - margin.bottom + 4}" fill="#64748b" font-size="11">0</text>
+            <polyline points="${points}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+            ${values.map((value, index) => `<circle cx="${x(index)}" cy="${y(value)}" r="3.5" fill="${color}"><title>${labels[index]}: ${value}개</title></circle>`).join("")}
+            ${labelIndexes.map((index) => `<text x="${x(index)}" y="${height - 10}" text-anchor="${index === 0 ? "start" : index === labels.length - 1 ? "end" : "middle"}" fill="#64748b" font-size="11">${labels[index]}</text>`).join("")}
+        </svg>`;
+});
+</script>
 {% endblock %}

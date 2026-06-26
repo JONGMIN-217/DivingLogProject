@@ -21,6 +21,12 @@ services:
         generateValue: true
       - key: UPLOAD_DIR
         value: /opt/render/project/src/uploads
+      - key: UPLOAD_STORAGE_BACKEND
+        value: local
+      - key: LOG_LEVEL
+        value: INFO
+      - key: LOG_DIR
+        value: /opt/render/project/src/uploads/logs
       - key: TRUSTED_HOSTS
         value: "*.onrender.com"
       - key: SESSION_HTTPS_ONLY
@@ -34,6 +40,8 @@ services:
       - key: BOOTSTRAP_ADMIN_USERNAME
         sync: false
       - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
+      - key: KHOA_SERVICE_KEY
         sync: false
     disk:
       name: diving-log-uploads

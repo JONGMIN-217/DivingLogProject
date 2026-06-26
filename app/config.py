@@ -83,6 +83,9 @@ class Settings:
     max_import_file_size_mb: int = env_int("MAX_IMPORT_FILE_SIZE_MB", 200)
     max_image_upload_size_mb: int = env_int("MAX_IMAGE_UPLOAD_SIZE_MB", 5)
     max_backup_upload_size_mb: int = env_int("MAX_BACKUP_UPLOAD_SIZE_MB", 500)
+    log_level: str = os.getenv("LOG_LEVEL", "INFO").strip().upper()
+    log_dir: Path = resolve_path(os.getenv("LOG_DIR"), "logs")
+    upload_storage_backend: str = os.getenv("UPLOAD_STORAGE_BACKEND", "local").strip().lower()
     session_https_only: bool = env_bool("SESSION_HTTPS_ONLY", is_production)
     session_max_age_seconds: int = env_int("SESSION_MAX_AGE_SECONDS", 60 * 60 * 24 * 14)
     force_https: bool = env_bool("FORCE_HTTPS", False)
@@ -94,6 +97,7 @@ class Settings:
         "localhost,127.0.0.1" if not is_production else "",
     )
     run_startup_maintenance: bool = env_bool("RUN_STARTUP_MAINTENANCE", not is_production)
+    khoa_service_key: str = os.getenv("KHOA_SERVICE_KEY", "").strip()
 
     def validate(self):
         if not self.secret_key:
@@ -114,6 +118,9 @@ class Settings:
 
         if self.bootstrap_admin_password and len(self.bootstrap_admin_password) < 12:
             raise RuntimeError("초기 관리자 비밀번호는 12자 이상이어야 합니다.")
+
+        if self.upload_storage_backend != "local":
+            raise RuntimeError("현재 지원되는 업로드 저장소는 local 입니다.")
 
 
 settings = Settings()

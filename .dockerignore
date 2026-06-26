@@ -7,4 +7,5 @@ divinglog.db
 divinglog.db-*
 uploads/*
 !uploads/.gitkeep
+logs
 .DS_Store

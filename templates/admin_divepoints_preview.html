@@ -118,6 +118,7 @@
                     <th>포인트명</th>
                     <th>위도</th>
                     <th>경도</th>
+                    <th>유형</th>
                     <th>메모</th>
                 </tr>
                 {% for row in preview_rows %}
@@ -128,6 +129,7 @@
                     <td>{{ row.point_name }}</td>
                     <td>{{ row.latitude }}</td>
                     <td>{{ row.longitude }}</td>
+                    <td>{{ '수영장' if row.point_type == 'POOL' else '해양' }}</td>
                     <td>{{ row.memo if row.memo else '-' }}</td>
                 </tr>
                 {% endfor %}

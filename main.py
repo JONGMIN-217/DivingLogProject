@@ -1,7 +1,9 @@
 from fastapi import FastAPI, HTTPException, Request, Form
+from fastapi.exceptions import RequestValidationError
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from sqlalchemy import and_, func, inspect, or_, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
@@ -11,8 +13,8 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from datetime import date, datetime, time
 from html import escape as html_escape
 from io import BytesIO, StringIO
-import hashlib
 import json
+import logging
 import re
 import zipfile
 
@@ -73,6 +75,10 @@ from app.services.backup_service import (
     restore_import_batches,
     restore_photos_from_zip,
 )
+from app.services.admin_dashboard_service import build_admin_dashboard, record_import_run
+from app.services.logging_config import configure_logging
+from app.services.point_api_test_service import run_point_api_tests
+from app.services.upload_storage import LocalUploadStorage, format_file_size
 
 from fastapi import UploadFile, File
 import uuid
@@ -83,6 +89,11 @@ import csv
 from urllib.parse import parse_qsl, quote, urlencode
 
 from app.config import settings
+
+configure_logging(settings.log_dir, settings.log_level)
+logger = logging.getLogger(__name__)
+api_logger = logging.getLogger("app.api")
+import_logger = logging.getLogger("app.import")
 
 app = FastAPI()
 app.state.settings = settings
@@ -110,6 +121,7 @@ MAX_IMAGE_UPLOAD_SIZE = settings.max_image_upload_size_mb * 1024 * 1024
 MAX_IMPORT_UPLOAD_SIZE = settings.max_import_file_size_mb * 1024 * 1024
 MAX_BACKUP_UPLOAD_SIZE = settings.max_backup_upload_size_mb * 1024 * 1024
 IMPORT_PREVIEW_PAGE_SIZE = 20
+upload_storage = LocalUploadStorage(UPLOAD_DIR)
 
 settings.static_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(settings.static_dir)), name="static")
@@ -191,9 +203,30 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        started_at = datetime.now()
+        try:
+            response = await call_next(request)
+            elapsed_ms = int((datetime.now() - started_at).total_seconds() * 1000)
+            target_logger = api_logger if request.url.path.startswith("/api/") else logger
+            target_logger.info(
+                "%s %s %s %sms",
+                request.method,
+                request.url.path,
+                response.status_code,
+                elapsed_ms,
+            )
+            return response
+        except Exception:
+            logger.exception("요청 처리 중 예외가 발생했습니다: %s %s", request.method, request.url.path)
+            raise
+
+
 app.add_middleware(LoginRequiredMiddleware)
 app.add_middleware(CsrfOriginMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.secret_key,
@@ -205,6 +238,38 @@ if settings.trusted_hosts:
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
 if settings.force_https:
     app.add_middleware(HTTPSRedirectMiddleware)
+
+
+def wants_json_response(request: Request):
+    accept = request.headers.get("accept", "")
+    return request.url.path.startswith("/api/") or "application/json" in accept
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.warning("사용자 입력 검증 실패: %s %s %s", request.method, request.url.path, exc.errors())
+    if wants_json_response(request):
+        return JSONResponse(
+            {"detail": "입력값을 확인해주세요.", "errors": exc.errors()},
+            status_code=422,
+        )
+    return PlainTextResponse("입력값을 확인해주세요.", status_code=422)
+
+
+@app.exception_handler(SQLAlchemyError)
+async def database_exception_handler(request: Request, exc: SQLAlchemyError):
+    logger.exception("DB 오류: %s %s", request.method, request.url.path)
+    if wants_json_response(request):
+        return JSONResponse({"detail": "데이터베이스 처리 중 오류가 발생했습니다."}, status_code=500)
+    return PlainTextResponse("데이터베이스 처리 중 오류가 발생했습니다.", status_code=500)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("서버 오류: %s %s", request.method, request.url.path)
+    if wants_json_response(request):
+        return JSONResponse({"detail": "서버 오류가 발생했습니다."}, status_code=500)
+    return PlainTextResponse("서버 오류가 발생했습니다.", status_code=500)
 
 
 def parse_time(value: str | None):
@@ -582,81 +647,19 @@ def album_context_label(db, album: SharedAlbum):
 
 
 def stored_upload_path(image_path: str):
-    relative_path = image_path.removeprefix("uploads/")
-    candidate = (UPLOAD_DIR / relative_path).resolve()
-    upload_root = UPLOAD_DIR.resolve()
-    if candidate != upload_root and upload_root not in candidate.parents:
-        return None
-    return candidate
-
-
-def format_file_size(size_bytes: int):
-    size_mb = size_bytes / (1024 * 1024)
-    if size_mb.is_integer():
-        return f"{int(size_mb)}MB"
-
-    return f"{size_mb:.1f}MB"
-
-
-def image_signature_matches(suffix: str, header: bytes):
-    if suffix in {".jpg", ".jpeg"}:
-        return header.startswith(b"\xff\xd8\xff")
-    if suffix == ".png":
-        return header.startswith(b"\x89PNG\r\n\x1a\n")
-    if suffix == ".gif":
-        return header.startswith((b"GIF87a", b"GIF89a"))
-    if suffix == ".webp":
-        return len(header) >= 12 and header.startswith(b"RIFF") and header[8:12] == b"WEBP"
-    return True
+    return upload_storage.resolve_stored_path(image_path)
 
 
 def validate_upload(upload_file: UploadFile, allowed_extensions: set[str], allowed_content_types: set[str], max_size: int):
-    original_filename = Path(upload_file.filename or "").name
-    suffix = Path(original_filename).suffix.lower()
-    if suffix not in allowed_extensions:
-        return None, "허용되지 않는 파일 형식입니다."
-
-    if upload_file.content_type and upload_file.content_type not in allowed_content_types:
-        return None, "허용되지 않는 파일 형식입니다."
-
-    upload_size = getattr(upload_file, "size", None)
-    if upload_size is not None and upload_size > max_size:
-        return None, f"파일 크기는 {format_file_size(max_size)} 이하만 허용됩니다."
-
-    if suffix in ALLOWED_IMAGE_EXTENSIONS:
-        position = upload_file.file.tell()
-        header = upload_file.file.read(16)
-        upload_file.file.seek(position)
-        if not image_signature_matches(suffix, header):
-            return None, "파일 확장자와 실제 이미지 형식이 일치하지 않습니다."
-
-    return suffix, None
+    return upload_storage.validate(upload_file, allowed_extensions, allowed_content_types, max_size)
 
 
 def save_upload_file(upload_file: UploadFile, destination: Path, max_size: int):
-    bytes_written = 0
-    with open(destination, "wb") as buffer:
-        while True:
-            chunk = upload_file.file.read(1024 * 1024)
-            if not chunk:
-                break
-
-            bytes_written += len(chunk)
-            if bytes_written > max_size:
-                destination.unlink(missing_ok=True)
-                return f"파일 크기는 {format_file_size(max_size)} 이하만 허용됩니다."
-
-            buffer.write(chunk)
-
-    return None
+    return upload_storage.save(upload_file, destination, max_size)
 
 
 def file_sha256(path: Path):
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for chunk in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return upload_storage.file_sha256(path)
 
 
 def parse_float_value(value: str | None):
@@ -1045,32 +1048,55 @@ def admin_points_from_logs_url(**params):
     return f"/admin/points/from-logs?{urlencode(params)}"
 
 
-DIVEPOINT_GPS_CSV_COLUMNS = ("country", "region", "area", "point_name", "latitude", "longitude", "memo")
+DIVEPOINT_GPS_CSV_COLUMNS = (
+    "country",
+    "region",
+    "area",
+    "point_name",
+    "latitude",
+    "longitude",
+    "point_type",
+    "memo",
+)
+DIVEPOINT_GPS_CSV_HEADERS = {
+    "country": ("국가", "country"),
+    "region": ("지역", "region"),
+    "area": ("세부지역", "area"),
+    "point_name": ("포인트명", "point_name"),
+    "latitude": ("위도", "latitude"),
+    "longitude": ("경도", "longitude"),
+    "point_type": ("유형", "point_type"),
+    "memo": ("메모", "memo"),
+}
 
 
-def parse_divepoint_gps_csv(path: Path):
+def parse_divepoint_gps_csv(path: Path, db=None):
     valid_rows: list[dict[str, str]] = []
     error_rows: list[dict[str, str]] = []
+    seen_names: set[str] = set()
+    seen_coordinates: list[tuple[float, float]] = []
+    existing_points = db.query(DivePoint).all() if db is not None else []
 
     with path.open("r", encoding="utf-8-sig", newline="") as file:
         reader = csv.DictReader(file)
         fieldnames = reader.fieldnames or []
         missing_columns = [
             column for column in DIVEPOINT_GPS_CSV_COLUMNS
-            if column not in fieldnames
+            if not any(header in fieldnames for header in DIVEPOINT_GPS_CSV_HEADERS[column])
         ]
         if missing_columns:
             return valid_rows, [
                 {
                     "row_number": "-",
                     "point_name": "",
-                    "reason": f"필수 컬럼이 없습니다: {', '.join(missing_columns)}",
+                    "reason": "필수 컬럼이 없습니다: "
+                    + ", ".join(DIVEPOINT_GPS_CSV_HEADERS[column][0] for column in missing_columns),
                 }
             ]
 
         for row_number, row in enumerate(reader, start=2):
             parsed = {
-                column: (row.get(column) or "").strip()
+                column: csv_value(row, *DIVEPOINT_GPS_CSV_HEADERS[column])
                 for column in DIVEPOINT_GPS_CSV_COLUMNS
             }
             latitude_value = parse_float_value(parsed["latitude"])
@@ -1106,9 +1132,67 @@ def parse_divepoint_gps_csv(path: Path):
                 )
                 continue
 
+            if not parsed["point_type"]:
+                error_rows.append(
+                    {
+                        "row_number": str(row_number),
+                        "point_name": parsed["point_name"],
+                        "reason": "유형 값이 없습니다. 해양 또는 수영장을 입력하세요.",
+                    }
+                )
+                continue
+
+            point_type = parsed["point_type"].strip().upper()
+            point_type = {"해양": "OCEAN", "수영장": "POOL"}.get(parsed["point_type"].strip(), point_type)
+            if point_type not in {"OCEAN", "POOL"}:
+                error_rows.append(
+                    {
+                        "row_number": str(row_number),
+                        "point_name": parsed["point_name"],
+                        "reason": "유형은 해양, 수영장, OCEAN, POOL 중 하나여야 합니다.",
+                    }
+                )
+                continue
+
+            normalized_name = " ".join(parsed["point_name"].casefold().split())
+            duplicate_reason = None
+            if normalized_name in seen_names:
+                duplicate_reason = "CSV 안에 같은 포인트명이 중복되어 있습니다."
+            elif any(
+                distance_km(latitude_value, longitude_value, seen_lat, seen_lon) <= 0.05
+                for seen_lat, seen_lon in seen_coordinates
+            ):
+                duplicate_reason = "CSV 안에 GPS 50m 이내의 중복 포인트가 있습니다."
+            else:
+                for point in existing_points:
+                    point_name = " ".join((point.name or "").casefold().split())
+                    if normalized_name and normalized_name == point_name:
+                        duplicate_reason = f"이미 등록된 같은 이름의 포인트가 있습니다. ID {point.id}"
+                        break
+                    if valid_coordinate(point.latitude, point.longitude) and distance_km(
+                        latitude_value,
+                        longitude_value,
+                        point.latitude,
+                        point.longitude,
+                    ) <= 0.05:
+                        duplicate_reason = f"이미 등록된 포인트와 GPS가 50m 이내입니다. {point.name} (ID {point.id})"
+                        break
+            if duplicate_reason:
+                error_rows.append(
+                    {
+                        "row_number": str(row_number),
+                        "point_name": parsed["point_name"],
+                        "reason": duplicate_reason,
+                    }
+                )
+                continue
+
             parsed["latitude"] = str(latitude_value)
             parsed["longitude"] = str(longitude_value)
+            parsed["point_type"] = point_type
             valid_rows.append(parsed)
+            seen_names.add(normalized_name)
+            seen_coordinates.append((latitude_value, longitude_value))
 
     return valid_rows, error_rows
 
@@ -1797,7 +1881,10 @@ def ensure_dive_point_columns():
             connection.execute(text("ALTER TABLE dive_points ADD COLUMN memo VARCHAR"))
         if "point_type" not in existing_columns:
             connection.execute(text("ALTER TABLE dive_points ADD COLUMN point_type VARCHAR NOT NULL DEFAULT 'OCEAN'"))
+        if "created_at" not in existing_columns:
+            connection.execute(text("ALTER TABLE dive_points ADD COLUMN created_at DATETIME"))
         connection.execute(text("UPDATE dive_points SET point_type = 'OCEAN' WHERE point_type IS NULL OR point_type = ''"))
+        connection.execute(text("UPDATE dive_points SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL"))
 
 
 def ensure_marine_weather_columns():
@@ -3103,20 +3190,14 @@ def admin_dashboard(request: Request):
         if redirect:
             return redirect
 
-        stats = {
-            "user_count": db.query(func.count(User.id)).scalar() or 0,
-            "admin_count": db.query(func.count(User.id)).filter(User.is_admin.is_(True)).scalar() or 0,
-            "log_count": db.query(func.count(DiveLog.id)).scalar() or 0,
-            "point_count": db.query(func.count(DivePoint.id)).scalar() or 0,
-            "import_file_count": len(_admin_import_files()),
-        }
+        dashboard = build_admin_dashboard(db, UPLOAD_DIR)
 
         return templates.TemplateResponse(
             "admin_dashboard.html",
             {
                 "request": request,
                 "current_user": current_user,
-                "stats": stats,
+                **dashboard,
                 "message": request.query_params.get("message"),
                 "error": request.query_params.get("error"),
             },
@@ -3573,6 +3654,66 @@ def admin_divepoints(request: Request):
         db.close()
 
 
+@app.get("/admin/divepoints/csv-template")
+def download_divepoint_csv_template(request: Request):
+    db = SessionLocal()
+    try:
+        current_user, redirect = admin_required_redirect(request, db)
+        if redirect:
+            return redirect
+
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["국가", "지역", "세부지역", "포인트명", "위도", "경도", "유형", "메모"])
+        writer.writerow(["대한민국", "제주특별자치도", "서귀포시", "문섬", "33.2275", "126.5672", "해양", "예시 행은 삭제 후 사용하세요."])
+        body = "\ufeff" + output.getvalue()
+        return Response(
+            content=body.encode("utf-8"),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="divepoint_template.csv"'},
+        )
+    finally:
+        db.close()
+
+
+@app.get("/admin/divepoints/{point_id}/api-test")
+def admin_divepoint_api_test(request: Request, point_id: int):
+    db = SessionLocal()
+    try:
+        current_user, redirect = admin_required_redirect(request, db)
+        if redirect:
+            return redirect
+
+        point = (
+            db.query(DivePoint)
+            .options(
+                joinedload(DivePoint.area)
+                .joinedload(Area.region)
+                .joinedload(Region.country)
+            )
+            .filter(DivePoint.id == point_id)
+            .first()
+        )
+        if not point:
+            return RedirectResponse(url=admin_divepoints_url(error="포인트를 찾을 수 없습니다."), status_code=303)
+        if not valid_coordinate(point.latitude, point.longitude):
+            return RedirectResponse(
+                url=admin_divepoints_url(error="GPS 좌표가 없어 API 테스트를 실행할 수 없습니다."),
+                status_code=303,
+            )
+
+        return templates.TemplateResponse(
+            "admin_divepoint_api_test.html",
+            {
+                "request": request,
+                "point": point,
+                "results": run_point_api_tests(point),
+            },
+        )
+    finally:
+        db.close()
+
+
 @app.get("/admin/points/merge")
 def admin_point_merge(request: Request):
     return admin_point_quality(request)
@@ -3747,6 +3888,7 @@ def create_admin_divepoint(
     point_type: str = Form("OCEAN"),
     latitude: str = Form(...),
     longitude: str = Form(...),
+    memo: str = Form(""),
 ):
     db = SessionLocal()
     try:
@@ -3768,13 +3910,16 @@ def create_admin_divepoint(
             point_name,
             latitude_value,
             longitude_value,
-            None,
+            memo,
             point_type,
         )
         db.commit()
 
         message = "포인트를 추가했습니다." if created else "기존 포인트의 위치를 업데이트했습니다."
-        return RedirectResponse(url=admin_divepoints_url(message=message), status_code=303)
+        return RedirectResponse(
+            url=admin_divepoints_url(message=message, api_test_point_id=point.id),
+            status_code=303,
+        )
     finally:
         db.close()
 
@@ -3806,7 +3951,7 @@ async def import_admin_divepoints(request: Request, csv_file: UploadFile = File(
             return RedirectResponse(url=admin_divepoints_url(error=upload_error), status_code=303)
 
         try:
-            preview_rows, error_rows = parse_divepoint_gps_csv(saved_path)
+            preview_rows, error_rows = parse_divepoint_gps_csv(saved_path, db)
         except UnicodeDecodeError:
             return RedirectResponse(url=admin_divepoints_url(error="UTF-8 CSV 파일만 지원합니다."), status_code=303)
 
@@ -3836,9 +3981,10 @@ def confirm_admin_divepoints_import(request: Request, source_path: str = Form(..
         if not import_path:
             return RedirectResponse(url=admin_divepoints_url(error="CSV 미리보기 파일을 찾을 수 없습니다."), status_code=303)
 
-        preview_rows, error_rows = parse_divepoint_gps_csv(import_path)
+        preview_rows, error_rows = parse_divepoint_gps_csv(import_path, db)
         created_count = 0
         updated_count = 0
+        affected_point_ids = []
 
         for row in preview_rows:
             point, created = get_or_create_dive_point(
@@ -3850,7 +3996,9 @@ def confirm_admin_divepoints_import(request: Request, source_path: str = Form(..
                 parse_float_value(row["latitude"]),
                 parse_float_value(row["longitude"]),
                 row["memo"],
+                row["point_type"],
             )
+            affected_point_ids.append(point.id)
             if created:
                 created_count += 1
             else:
@@ -3858,7 +4006,10 @@ def confirm_admin_divepoints_import(request: Request, source_path: str = Form(..
 
         db.commit()
         message = f"CSV 등록 완료: 추가 {created_count}개, 업데이트 {updated_count}개, 건너뜀 {len(error_rows)}개"
-        return RedirectResponse(url=admin_divepoints_url(message=message), status_code=303)
+        params = {"message": message}
+        if affected_point_ids:
+            params["api_test_point_id"] = affected_point_ids[-1]
+        return RedirectResponse(url=admin_divepoints_url(**params), status_code=303)
     finally:
         db.close()
 
@@ -3881,8 +4032,11 @@ def point_current_marine_api(request: Request, point_id: int):
             return {"ok": False, "message": "포인트 GPS 정보가 없습니다."}
 
         try:
-            return {"ok": True, "marine": get_current_marine_conditions(point.latitude, point.longitude)}
-        except Exception:
+            marine = get_current_marine_conditions(point.latitude, point.longitude)
+            api_logger.info("해양 API 조회 성공: point_id=%s", point_id)
+            return {"ok": True, "marine": marine}
+        except Exception as exc:
+            api_logger.warning("해양 API 조회 실패: point_id=%s error=%s", point_id, exc)
             return {"ok": False, "message": "해양 정보 조회 실패"}
     finally:
         db.close()
@@ -3910,8 +4064,10 @@ def point_weather_api(
                 weather = get_historical_weather(point.latitude, point.longitude, parsed_date, parsed_time)
             else:
                 weather = get_current_weather(point.latitude, point.longitude)
+            api_logger.info("기상 API 조회 성공: point_id=%s historical=%s", point_id, bool(weather_date))
             return {"ok": True, "weather": weather}
-        except Exception:
+        except Exception as exc:
+            api_logger.warning("기상 API 조회 실패: point_id=%s error=%s", point_id, exc)
             return {"ok": False, "message": "기상 정보 조회 실패"}
     finally:
         db.close()
@@ -3987,6 +4143,7 @@ async def import_preview(request: Request, import_file: UploadFile = File(...)):
 
     upload_error = save_upload_file(import_file, saved_path, MAX_IMPORT_UPLOAD_SIZE)
     if upload_error:
+        import_logger.warning("Import 업로드 저장 실패: filename=%s error=%s", original_filename, upload_error)
         return templates.TemplateResponse(
             "import.html",
             {
@@ -4014,6 +4171,7 @@ async def import_preview(request: Request, import_file: UploadFile = File(...)):
         )
         save_import_batch(IMPORT_UPLOAD_DIR, batch)
     except UnsupportedImportFormat as exc:
+        import_logger.warning("Import 지원하지 않는 형식: filename=%s error=%s", original_filename, exc)
         return templates.TemplateResponse(
             "import.html",
             {
@@ -4024,6 +4182,7 @@ async def import_preview(request: Request, import_file: UploadFile = File(...)):
             status_code=400
         )
     except Exception:
+        import_logger.exception("Import 미리보기 생성 실패: filename=%s path=%s", original_filename, saved_path)
         return templates.TemplateResponse(
             "import.html",
             {
@@ -4142,6 +4301,21 @@ def import_preview_batch_action(
                 batch,
                 current_user.id if current_user else None,
             )
+            record_import_run(
+                db,
+                batch,
+                result,
+                current_user.id if current_user else None,
+            )
+            import_logger.info(
+                "Import 저장 완료: batch_id=%s total=%s selected=%s saved=%s duplicates=%s failed=%s",
+                batch_id,
+                result.get("total_count"),
+                result.get("selected_count"),
+                result.get("saved_count"),
+                result.get("duplicate_count"),
+                result.get("failed_count"),
+            )
             db.commit()
             request.session["import_result"] = result
             return RedirectResponse(url="/import/result", status_code=303)
@@ -4180,6 +4354,8 @@ def import_confirm(
         preview = parse_import_file(import_path, original_filename)
         user_id = current_user.id if current_user else None
         batch = {
+            "parser_name": preview.parser_name,
+            "original_filename": original_filename,
             "dives": [
                 dive_to_batch_item(dive, index)
                 for index, dive in enumerate(preview.dives)
@@ -4207,6 +4383,16 @@ def import_confirm(
             candidate_point_names,
         )
         result = save_import_items(db, batch["dives"], user_id)
+        record_import_run(db, batch, result, user_id)
+        import_logger.info(
+            "Import 저장 완료: filename=%s total=%s selected=%s saved=%s duplicates=%s failed=%s",
+            original_filename,
+            result.get("total_count"),
+            result.get("selected_count"),
+            result.get("saved_count"),
+            result.get("duplicate_count"),
+            result.get("failed_count"),
+        )
         db.commit()
         request.session["import_result"] = result
         return RedirectResponse(url="/import/result", status_code=303)
@@ -4784,6 +4970,152 @@ def stats_page(request: Request):
         )
     finally:
         db.close()
+
+
+@app.get("/stats/countries")
+def country_stats_page(request: Request, country_id: int | None = None):
+    db = SessionLocal()
+    try:
+        current_user = get_current_user(request, db)
+        logs = (
+            db.query(DiveLog)
+            .options(
+                joinedload(DiveLog.dive_point)
+                .joinedload(DivePoint.area)
+                .joinedload(Area.region)
+                .joinedload(Region.country)
+            )
+            .join(DivePoint, DiveLog.dive_point_id == DivePoint.id)
+            .filter(visible_log_condition(current_user))
+            .filter(DivePoint.point_type == "OCEAN")
+            .all()
+        )
+
+        country_stats = build_location_stats(
+            logs,
+            lambda log: location_parts(log)["country_id"],
+            lambda log: location_parts(log)["country_name"],
+        )
+        selected_country = None
+        selected_rows = {
+            "regions": [],
+            "areas": [],
+            "points": [],
+        }
+        if country_id:
+            selected_country = db.query(Country).filter(Country.id == country_id).first()
+            selected_logs = [
+                log
+                for log in logs
+                if location_parts(log)["country_id"] == country_id
+            ]
+            selected_rows = {
+                "regions": build_location_stats(
+                    selected_logs,
+                    lambda log: location_parts(log)["region_id"],
+                    lambda log: location_parts(log)["region_name"],
+                ),
+                "areas": build_location_stats(
+                    selected_logs,
+                    lambda log: location_parts(log)["area_id"],
+                    lambda log: location_parts(log)["area_name"],
+                ),
+                "points": build_location_stats(
+                    selected_logs,
+                    lambda log: location_parts(log)["point_id"],
+                    lambda log: location_parts(log)["point_name"],
+                ),
+            }
+
+        max_country_dives = max((row["dive_count"] for row in country_stats), default=0)
+        max_country_time = max((row["total_dive_time"] for row in country_stats), default=0)
+        return templates.TemplateResponse(
+            "country_stats.html",
+            {
+                "request": request,
+                "country_stats": country_stats,
+                "selected_country": selected_country,
+                "selected_rows": selected_rows,
+                "max_country_dives": max_country_dives,
+                "max_country_time": max_country_time,
+            },
+        )
+    finally:
+        db.close()
+
+
+def location_parts(log: DiveLog):
+    point = log.dive_point
+    area = point.area if point else None
+    region = area.region if area else None
+    country = region.country if region else None
+    return {
+        "country_id": country.id if country else None,
+        "country_name": country.name if country else "국가 미지정",
+        "region_id": region.id if region else None,
+        "region_name": region.name if region else "지역 미지정",
+        "area_id": area.id if area else None,
+        "area_name": area.name if area else "세부지역 미지정",
+        "point_id": point.id if point else None,
+        "point_name": point.name if point else "포인트 미지정",
+    }
+
+
+def build_location_stats(logs: list[DiveLog], key_func, name_func):
+    groups = {}
+    for log in logs:
+        key = key_func(log)
+        if key is None:
+            key = f"unknown:{name_func(log)}"
+        group = groups.setdefault(
+            key,
+            {
+                "id": key if isinstance(key, int) else None,
+                "name": name_func(log),
+                "dive_count": 0,
+                "total_dive_time": 0,
+                "depth_values": [],
+                "max_depth_values": [],
+                "water_temp_values": [],
+                "point_ids": set(),
+                "dates": [],
+            },
+        )
+        group["dive_count"] += 1
+        group["total_dive_time"] += int(log.dive_time or 0)
+        if log.avg_depth is not None:
+            group["depth_values"].append(float(log.avg_depth))
+        if log.max_depth is not None:
+            group["max_depth_values"].append(float(log.max_depth))
+        if log.water_temp is not None:
+            group["water_temp_values"].append(float(log.water_temp))
+        if log.dive_point_id is not None:
+            group["point_ids"].add(log.dive_point_id)
+        if log.dive_date:
+            group["dates"].append(log.dive_date)
+
+    rows = []
+    for group in groups.values():
+        rows.append(
+            {
+                "id": group["id"],
+                "name": group["name"],
+                "dive_count": group["dive_count"],
+                "total_dive_time": group["total_dive_time"],
+                "total_dive_time_display": format_dive_duration(group["total_dive_time"]),
+                "avg_depth": average_or_none(group["depth_values"]),
+                "max_depth": max(group["max_depth_values"]) if group["max_depth_values"] else None,
+                "avg_water_temp": average_or_none(group["water_temp_values"]),
+                "point_count": len(group["point_ids"]),
+                "first_visit": min(group["dates"]) if group["dates"] else None,
+                "latest_visit": max(group["dates"]) if group["dates"] else None,
+            }
+        )
+    return sorted(rows, key=lambda row: (-row["dive_count"], row["name"]))
+
+
+def average_or_none(values: list[float]):
+    return sum(values) / len(values) if values else None
 
 @app.get("/log/{log_id}")
 def log_detail(request: Request, log_id: int):

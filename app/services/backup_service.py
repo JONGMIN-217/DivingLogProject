@@ -17,6 +17,7 @@ from app.models import (
     Friend,
     FriendGroup,
     FriendGroupMember,
+    ImportRun,
     Region,
     SharedAlbum,
     SharedAlbumPhoto,
@@ -36,6 +37,7 @@ MODEL_TABLES = {
     "users": User,
     "user_settings": UserSettings,
     "friends": Friend,
+    "import_runs": ImportRun,
     "friend_groups": FriendGroup,
     "friend_group_members": FriendGroupMember,
     "countries": Country,
@@ -55,6 +57,7 @@ RESTORE_ORDER = [
     "users",
     "user_settings",
     "friends",
+    "import_runs",
     "friend_groups",
     "friend_group_members",
     "countries",
@@ -72,11 +75,13 @@ RESTORE_ORDER = [
 
 DATE_COLUMNS = {
     "users": {"created_at": "datetime"},
+    "dive_points": {"created_at": "datetime"},
     "dive_logs": {"dive_date": "date", "entry_time": "time", "exit_time": "time"},
     "dive_trips": {"start_date": "date", "end_date": "date"},
     "friend_groups": {"created_at": "datetime"},
     "shared_albums": {"created_at": "datetime"},
     "shared_album_photos": {"created_at": "datetime"},
+    "import_runs": {"created_at": "datetime"},
 }
 
 
@@ -126,6 +131,8 @@ def _query_for_scope(db, model, table_name: str, user, include_all: bool):
         return query.filter(UserSettings.user_id == user.id)
     if table_name == "friends":
         return query.filter((Friend.requester_id == user.id) | (Friend.addressee_id == user.id))
+    if table_name == "import_runs":
+        return query.filter(ImportRun.user_id == user.id)
     if table_name == "friend_groups":
         return query.filter(FriendGroup.owner_id == user.id)
     if table_name == "friend_group_members":
@@ -390,6 +397,8 @@ def filter_payload_for_restore(payload, user, restore_all: bool):
             tables[table_name] = [row for row in rows if row.get("user_id") == user_id]
         elif table_name == "friends":
             tables[table_name] = [row for row in rows if row.get("requester_id") == user_id or row.get("addressee_id") == user_id]
+        elif table_name == "import_runs":
+            tables[table_name] = [row for row in rows if row.get("user_id") == user_id]
         elif table_name == "friend_groups":
             tables[table_name] = [row for row in rows if row.get("id") in group_ids]
         elif table_name == "friend_group_members":
@@ -472,6 +481,7 @@ def table_label(table_name: str):
         "users": "사용자",
         "user_settings": "사용자 설정",
         "friends": "친구",
+        "import_runs": "Import 실행 기록",
         "friend_groups": "친구 그룹",
         "friend_group_members": "친구 그룹 구성원",
         "countries": "국가",

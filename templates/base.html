@@ -58,6 +58,7 @@
             <div class="nav-group">
                 <div class="nav-group-title">분석</div>
                 <a class="nav-link" href="/stats">통계</a>
+                <a class="nav-link" href="/stats/countries">국가별 통계</a>
             </div>
 
             {% if request.session.get("user_id") %}
@@ -117,6 +118,7 @@
             <a href="/friends">친구 관리</a>
             <a href="/trips">투어</a>
             <a href="/albums">공유 사진첩</a>
+            <a href="/stats/countries">국가별 통계</a>
             {% if request.session.get("user_id") %}
             <a href="/account/settings">계정관리</a>
             <a href="/account/backup">백업/복구</a>

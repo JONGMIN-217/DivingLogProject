@@ -77,6 +77,19 @@
     cursor: pointer;
 }
 
+.secondary-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 9px 14px;
+    border: 1px solid #64748b;
+    border-radius: 6px;
+    background: #fff;
+    color: #334155;
+    font: inherit;
+    text-decoration: none;
+}
+
 .message {
     margin-bottom: 12px;
     color: #137333;
@@ -187,6 +200,10 @@
                         <label for="longitude">경도</label>
                         <input id="longitude" name="longitude" type="number" step="0.000001" min="-180" max="180" required>
                     </div>
+                    <div class="field">
+                        <label for="memo">메모</label>
+                        <input id="memo" name="memo">
+                    </div>
                 </div>
                 <div class="form-actions">
                     <button class="primary-button" type="submit">포인트 저장</button>
@@ -197,9 +214,10 @@
         <section class="admin-card">
             <h3>CSV 일괄 등록</h3>
             <p class="help-text">
-                CSV 헤더는 country, region, area, point_name, latitude, longitude, memo 를 사용하세요.
-                업로드 후 미리보기에서 오류 목록을 확인하고 최종 저장합니다.
+                CSV 컬럼은 국가, 지역, 세부지역, 포인트명, 위도, 경도, 유형, 메모입니다.
+                좌표 누락, 유형 누락, 같은 이름 또는 GPS 50m 이내 중복을 미리보기에서 검사합니다.
             </p>
+            <p><a class="secondary-button" href="/admin/divepoints/csv-template">CSV 템플릿 다운로드</a></p>
             <form action="/admin/divepoints/import" method="post" enctype="multipart/form-data">
                 <div class="field">
                     <label for="csv_file">CSV 파일</label>
@@ -226,12 +244,13 @@
                     <th>위도</th>
                     <th>경도</th>
                     <th>메모</th>
+                    <th>API 테스트</th>
                 </tr>
                 {% for point in points %}
                 {% set area = point.area %}
                 {% set region = area.region if area else none %}
                 {% set country = region.country if region else none %}
-                <tr>
+                <tr{% if request.query_params.get('api_test_point_id') == point.id|string %} style="background:#ecfdf5;"{% endif %}>
                     <td>{{ point.id }}</td>
                     <td>{{ country.name if country else '-' }}</td>
                     <td>{{ region.name if region else '-' }}</td>
@@ -241,10 +260,11 @@
                     <td>{{ point.latitude }}</td>
                     <td>{{ point.longitude }}</td>
                     <td>{{ point.memo if point.memo else '-' }}</td>
+                    <td><a href="/admin/divepoints/{{ point.id }}/api-test">API 테스트</a></td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="8">등록된 포인트가 없습니다.</td>
+                    <td colspan="10">등록된 포인트가 없습니다.</td>
                 </tr>
                 {% endfor %}
             </table>

@@ -30,6 +30,7 @@ Railway 프로젝트가 있다면 `railway.json`을 사용하고 아래 수동 �
 - 앱 실행: Uvicorn 단일 프로세스
 - 상태 점검: `GET /healthz`
 - 업로드: 영구 디스크 또는 영구 볼륨의 `UPLOAD_DIR`
+- 로그: `LOG_DIR` 아래 `server.log`, `error.log`, `import.log`, `api.log`
 - 인스턴스 수: 1개
 
 업로드가 로컬 파일시스템에 저장되므로 현재 구성에서 인스턴스를 여러 개 실행하면 안 된다.
@@ -78,6 +79,9 @@ APP_ENV=production
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 SECRET_KEY=32자 이상의 고정 난수
 UPLOAD_DIR=/data/uploads
+UPLOAD_STORAGE_BACKEND=local
+LOG_DIR=/data/logs
+LOG_LEVEL=INFO
 TRUSTED_HOSTS=*.up.railway.app
 SESSION_HTTPS_ONLY=true
 FORCE_HTTPS=false
@@ -85,6 +89,7 @@ ALLOW_REGISTRATION=false
 RUN_STARTUP_MAINTENANCE=false
 BOOTSTRAP_ADMIN_USERNAME=admin
 BOOTSTRAP_ADMIN_PASSWORD=12자 이상의 강한 비밀번호
+KHOA_SERVICE_KEY=국립해양조사원_OceanGrid_서비스키
 RAILWAY_RUN_UID=0
 ```
 
@@ -108,6 +113,9 @@ Docker 이미지가 비루트 사용자로 실행되므로 Railway 볼륨 권한
 | `DATABASE_URL` | 예 | PostgreSQL 연결 URL |
 | `SECRET_KEY` | 예 | 32자 이상의 고정 난수 |
 | `UPLOAD_DIR` | 예 | 영구 디스크 또는 볼륨의 절대 경로 |
+| `UPLOAD_STORAGE_BACKEND` | 예 | 현재 `local`만 지원 |
+| `LOG_DIR` | 권장 | 서버/API/Import/오류 로그 저장 경로 |
+| `LOG_LEVEL` | 권장 | 기본 `INFO` |
 | `TRUSTED_HOSTS` | 예 | 쉼표로 구분한 허용 도메인 |
 | `SESSION_HTTPS_ONLY` | 예 | 운영에서는 `true` |
 | `FORCE_HTTPS` | 권장 | 플랫폼 프록시 구성을 고려해 기본 `false` |
@@ -115,6 +123,7 @@ Docker 이미지가 비루트 사용자로 실행되므로 Railway 볼륨 권한
 | `RUN_STARTUP_MAINTENANCE` | 예 | 운영에서는 `false` |
 | `BOOTSTRAP_ADMIN_USERNAME` | 최초만 | 빈 DB의 첫 관리자 ID |
 | `BOOTSTRAP_ADMIN_PASSWORD` | 최초만 | 12자 이상의 첫 관리자 비밀번호 |
+| `KHOA_SERVICE_KEY` | 선택 | 국립해양조사원 OceanGrid API 서비스 키 |
 
 운영 비밀값은 `.env`나 Git에 저장하지 않고 플랫폼의 비밀 환경변수 기능을 사용한다.
 
@@ -205,6 +214,28 @@ docker build -t diving-log .
 docker run --rm -p 8000:8000 --env-file .env -v diving-uploads:/data/uploads diving-log
 curl http://127.0.0.1:8000/healthz
 ```
+
+PostgreSQL 포함 로컬 검증:
+
+```bash
+docker compose up --build
+curl http://127.0.0.1:8000/healthz
+```
+
+`docker-compose.yml`은 운영과 유사한 구조를 확인하기 위한 예시다. 공개 서비스에 그대로 쓰기 전에
+`SECRET_KEY`, `BOOTSTRAP_ADMIN_PASSWORD`, DB 비밀번호를 반드시 교체한다.
+
+## 운영 로그
+
+앱은 다음 로그 파일을 남긴다.
+
+- `server.log`: 일반 서버 요청과 애플리케이션 로그
+- `error.log`: 처리되지 않은 예외와 DB 오류
+- `import.log`: Import 미리보기/저장 결과와 실패 진단
+- `api.log`: 외부 해양/기상/KHOA API 호출 결과
+
+로그 파일은 5MB 단위로 회전한다. 운영 플랫폼에서 `LOG_DIR`이 영구 디스크에 연결되지 않으면
+재배포 시 로그가 사라질 수 있다.
 
 ## 공식 문서
 
